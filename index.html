@@ -483,7 +483,7 @@ async function rpc(fn, args) {
 }
 const tok = () => S.token;
 const realApi = {
-  search: f => rpc('pm_search_permit', { p_source: f.type, p_permit: f.no, p_date: f.date, p_name: f.name, p_address: f.addr }),
+  search: f => rpc('pm_search_permit', { p_source: f.type, p_date: f.date, p_name: f.name, p_address: f.addr }),
   login: (u, p) => rpc('pm_staff_login', { p_username: u, p_password: p }),
   logout: () => rpc('pm_staff_logout', { p_token: tok() }),
   changePassword: (o, n) => rpc('pm_staff_change_password', { p_token: tok(), p_old: o, p_new: n }),
@@ -502,8 +502,8 @@ const inFy = (r, fy) => fy == null || (r.submitted_on && fyOf(r.submitted_on) ==
 const demoApi = {
   async search(f) {
     await wait(250);
-    if (!f.type || String(f.no).trim().length < 3 || !f.date || String(f.name).trim().length < 2 || String(f.addr).trim().length < 4) return { ok: false, error: 'missing' };
-    const res = DEMO_ROWS.filter(r => r.source === f.type && String(r.permit_no).trim().toLowerCase() === String(f.no).trim().toLowerCase() && r.submitted_on === f.date && tokMatch(f.name, r.applicant) && tokMatch(f.addr, r.address))
+    if (!f.type || !f.date || String(f.name).trim().length < 2 || String(f.addr).trim().length < 4) return { ok: false, error: 'missing' };
+    const res = DEMO_ROWS.filter(r => r.source === f.type && r.submitted_on === f.date && tokMatch(f.name, r.applicant) && tokMatch(f.addr, r.address))
       .slice(0, 5).map(r => ({ ...r, has_inspections: true }));
     return { ok: true, results: res };
   },
@@ -539,7 +539,7 @@ const api = DEMO ? demoApi : realApi;
    ==================================================================== */
 const S = {
   view: 'public', tab: 'overview', token: null, user: null, meta: null, busy: false,
-  pub: { form: { type: '', no: '', date: '', name: '', addr: '' }, results: null, error: '', invalid: [], loading: false },
+  pub: { form: { type: '', date: '', name: '', addr: '' }, results: null, error: '', invalid: [], loading: false },
   login: { error: '', loading: false },
   ov: { fy: null, summary: null, permits: null, filter: '', loading: false },
   cc: { fy: null, month: 'all', data: null, loading: false },
@@ -573,17 +573,14 @@ function publicView() {
   else if (p.results && p.results.length) results = p.results.map(r => `<div class="card slip">
       <div class="p-hd"><div><div class="p-no">${esc(r.permit_no)}</div></div><span class="pill type">${esc(r.label)}</span></div>
       <p class="p-meta">${esc(r.address || '')}<br>Submitted ${esc(longDate(r.submitted_on))}</p>${trackerHTML(r)}</div>`).join('');
-  else if (p.results) results = `<div class="card"><div class="empty"><b>No matching permit found.</b><br>Please check that the permit type, permit number, and date submitted are exactly right, and that the name and address match your application. New applications can take up to an hour to appear.</div></div>`;
+  else if (p.results) results = `<div class="card"><div class="empty"><b>No matching permit found.</b><br>Please check that the permit type and date submitted are exactly right, and that the name and address match your application. New applications can take up to an hour to appear.</div></div>`;
   return `${header('Permit Status')}<main>
     <p class="lede">Check the progress of a building, sub trade, or sign permit. To protect your privacy, please fill in every field below using the details from your application.</p>
     ${DEMO ? `<div class="banner caution"><b>Demo mode</b> — sample data only. <button class="link" data-act="demo-fill" type="button">Fill in an example</button></div>` : ''}
     <form class="card slip" id="searchForm" novalidate>
       <div class="field"><label for="f_type">Permit type <span class="req">*</span></label>
         <select id="f_type" data-form="type" class="${bad('type').trim()}" required><option value="">Select a permit type…</option>${SOURCES.map(s => `<option value="${s.key}"${f.type === s.key ? ' selected' : ''}>${s.label}</option>`).join('')}</select></div>
-      <div class="row2">
-        <div class="field"><label for="f_no">Permit # <span class="req">*</span></label><input id="f_no" data-form="no" class="${bad('no').trim()}" value="${esc(f.no)}" autocomplete="off" required></div>
-        <div class="field"><label for="f_date">Date submitted <span class="req">*</span></label><input id="f_date" type="date" data-form="date" class="${bad('date').trim()}" value="${esc(f.date)}" max="${todayISO()}" required></div>
-      </div>
+      <div class="field"><label for="f_date">Date submitted <span class="req">*</span></label><input id="f_date" type="date" data-form="date" class="${bad('date').trim()}" value="${esc(f.date)}" max="${todayISO()}" required></div>
       <div class="field"><label for="f_name">Applicant name <span class="req">*</span></label><input id="f_name" data-form="name" class="${bad('name').trim()}" value="${esc(f.name)}" autocomplete="name" required></div>
       <div class="field"><label for="f_addr">Property address <span class="req">*</span></label><input id="f_addr" data-form="addr" class="${bad('addr').trim()}" value="${esc(f.addr)}" autocomplete="street-address" required><div class="hint">The street number and street name is enough (for example “431 Oak”).</div></div>
       ${p.error ? `<div class="banner warn" style="margin:0 0 14px">${esc(p.error)}</div>` : ''}
@@ -747,12 +744,12 @@ document.addEventListener('submit', async e => {
   e.preventDefault(); const id = e.target.id;
   if (id === 'searchForm') {
     const f = S.pub.form, bad = [];
-    if (!f.type) bad.push('type'); if (f.no.trim().length < 3) bad.push('no'); if (!f.date) bad.push('date'); if (f.name.trim().length < 2) bad.push('name'); if (f.addr.trim().length < 4) bad.push('addr');
+    if (!f.type) bad.push('type'); if (!f.date) bad.push('date'); if (f.name.trim().length < 2) bad.push('name'); if (f.addr.trim().length < 4) bad.push('addr');
     S.pub.invalid = bad; S.pub.results = null;
     if (bad.length) { S.pub.error = 'Please fill in every field — all of them are required to look up a permit.'; return render(); }
     S.pub.error = ''; S.pub.loading = true; render();
     try {
-      const r = await api.search({ type: f.type, no: f.no.trim(), date: f.date, name: f.name.trim(), addr: f.addr.trim() });
+      const r = await api.search({ type: f.type, date: f.date, name: f.name.trim(), addr: f.addr.trim() });
       S.pub.results = r && r.ok ? r.results : []; if (r && !r.ok) S.pub.error = 'Please fill in every field — all of them are required to look up a permit.';
     } catch (err) { S.pub.error = 'We could not reach the permit records right now. Please try again in a few minutes.'; }
     S.pub.loading = false; render();
@@ -776,7 +773,7 @@ document.addEventListener('click', async e => {
   const el = e.target.closest('[data-act]'); if (!el) return; const act = el.dataset.act;
   if (act === 'goto-login') { S.view = 'login'; history.replaceState(null, '', '#admin'); render(); }
   else if (act === 'goto-public') { S.view = 'public'; history.replaceState(null, '', location.pathname + location.search); render(); }
-  else if (act === 'demo-fill') { S.pub.form = { type: 'building', no: 'B-25-001', date: '2025-09-30', name: "O'Neil Builders", addr: '431 oak' }; S.pub.invalid = []; S.pub.error = ''; render(); }
+  else if (act === 'demo-fill') { S.pub.form = { type: 'building', date: '2025-09-30', name: "O'Neil Builders", addr: '431 oak' }; S.pub.invalid = []; S.pub.error = ''; render(); }
   else if (act === 'logout') doLogout();
   else if (act === 'tab') { S.tab = el.dataset.tab; render(); if (S.tab === 'cict') { if (!S.cr.data && !S.cr.loading) loadCR(); } else if (S.tab === 'settings') loadMeta(); else if (S.tab === 'overview') { loadOverview(); loadCC(); } }
   else if (act === 'open-cict') { S.cr.fy = S.cc.fy; S.cr.month = S.cc.month; S.tab = 'cict'; loadCR(); }
