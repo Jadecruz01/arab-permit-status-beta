@@ -38,6 +38,32 @@
   #app { max-width: 560px; margin: 0 auto; padding-bottom: 64px; }
   #app.wide { max-width: 1100px; }
 
+
+  /* update notice (popup, then a banner for about a minute) */
+  #relRoot { position: relative; z-index: 200; }
+  .rel-overlay { position: fixed; inset: 0; background: rgba(16,28,36,0.55); display: flex; align-items: center; justify-content: center; padding: 16px; animation: relFade .25s ease-out; }
+  .rel-card { position: relative; width: 100%; max-width: 440px; max-height: 88vh; overflow: auto; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-top: 5px solid var(--accent); border-radius: 14px; padding: 22px 22px 18px; box-shadow: 0 22px 60px rgba(0,0,0,0.38); animation: relPop .32s cubic-bezier(.2,.9,.3,1.1); }
+  .rel-card:focus { outline: none; }
+  .rel-x { position: absolute; top: 9px; right: 9px; width: 36px; height: 36px; border-radius: 50%; border: 0; background: transparent; color: var(--ink-soft); font-size: 24px; line-height: 1; cursor: pointer; }
+  .rel-x:hover { background: var(--surface-alt); color: var(--ink); }
+  .rel-tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-dark); background: var(--success-bg); padding: 3px 9px; border-radius: 99px; }
+  .rel-card h2 { font-family: var(--serif); font-size: 21px; font-weight: 600; margin: 10px 30px 2px 0; color: var(--primary); line-height: 1.2; }
+  .rel-card .rel-ver { font-size: 12.5px; color: var(--ink-soft); margin: 0 0 12px; }
+  .rel-card ul { margin: 0 0 16px; padding-left: 20px; font-size: 14.5px; line-height: 1.5; }
+  .rel-card li { margin: 0 0 7px; }
+  .rel-card .btn { width: 100%; justify-content: center; }
+  #relBanner { overflow: hidden; height: 0; background: #1B4B72; color: #fff; border-bottom: 3px solid #4B7A45; }
+  .rel-bar { height: 44px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 0 44px 0 14px; font-size: 13.5px; position: relative; white-space: nowrap; overflow: hidden; }
+  .rel-bar .rel-msg { overflow: hidden; text-overflow: ellipsis; }
+  .rel-pill { flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; background: #4B7A45; color: #fff; padding: 2px 8px; border-radius: 99px; }
+  .rel-link { flex: none; background: transparent; border: 0; color: #fff; text-decoration: underline; font: inherit; cursor: pointer; padding: 6px 4px; }
+  .rel-bx { position: absolute; right: 6px; top: 4px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #fff; font-size: 22px; line-height: 1; cursor: pointer; }
+  .rel-bx:hover { background: rgba(255,255,255,.15); }
+  @keyframes relFade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes relPop { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+  @media (max-width: 520px) { .rel-bar .rel-link { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .rel-overlay, .rel-card { animation: none; } }
+
   header.top {
     position: sticky; top: 0; z-index: 20; background: var(--surface); color: var(--ink);
     padding: 14px 18px 13px; display: flex; align-items: center; gap: 12px;
@@ -170,6 +196,7 @@
 </style>
 </head>
 <body>
+<div id="relRoot"></div>
 <div id="app"></div>
 <div id="toast" role="status"></div>
 
@@ -211,7 +238,8 @@ function defaultPeriod() {            // the month most recently finished — wh
 }
 function stageOf(r) { return r.complete || r.overridden ? 'complete' : r.paid ? 'paid' : r.inspection_started ? 'insp' : 'sub'; }
 const STAGE_TXT = { complete: 'Complete', paid: 'Paid', insp: 'In inspection', sub: 'Submitted' };
-const stageLabel = r => (r.overridden && !r.complete ? 'Complete (override)' : STAGE_TXT[stageOf(r)]);
+const ovOnly = r => !!r.overridden && !r.real_complete;
+const stageLabel = r => (ovOnly(r) ? 'Complete (override)' : STAGE_TXT[stageOf(r)]);
 
 let toastT;
 function toast(msg, bad) {
@@ -305,7 +333,7 @@ function pdfFit(s, maxW, size, bold) { s = pdfClean(s); if (pdfW(s, size, bold) 
 const rgb = h => [1, 3, 5].map(i => (parseInt(h.slice(i, i + 2), 16) / 255).toFixed(3));
 const C_PRIMARY = rgb('#1B4B72'), C_GRAY = rgb('#52646E'), C_ZEBRA = rgb('#F1F4F1'), C_LINE = rgb('#D7DDD5'), C_BLACK = ['0', '0', '0'], C_WHITE = ['1', '1', '1'];
 class PdfDoc {
-  constructor() { this.PW = 792; this.PH = 612; this.pages = []; this.cur = null; }
+  constructor(pw = 792, ph = 612) { this.PW = pw; this.PH = ph; this.pages = []; this.cur = null; }
   addPage() { this.cur = []; this.pages.push(this.cur); return this; }
   text(s, x, y, o = {}) {
     const size = o.size || 9, bold = !!o.bold, w = pdfW(s, size, bold);
@@ -313,6 +341,7 @@ class PdfDoc {
     this.cur.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf ${(o.color || C_BLACK).join(' ')} rg ${xx.toFixed(2)} ${(this.PH - y).toFixed(2)} Td (${pdfEsc(s)}) Tj ET`);
   }
   rect(x, y, w, h, color) { this.cur.push(`${color.join(' ')} rg ${x.toFixed(2)} ${(this.PH - y - h).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`); }
+  circle(cx, cy, r, color) { const k = 0.5523 * r, Y = this.PH - cy, f = n => n.toFixed(2); this.cur.push(`${color.join(' ')} rg ${f(cx + r)} ${f(Y)} m ${f(cx + r)} ${f(Y + k)} ${f(cx + k)} ${f(Y + r)} ${f(cx)} ${f(Y + r)} c ${f(cx - k)} ${f(Y + r)} ${f(cx - r)} ${f(Y + k)} ${f(cx - r)} ${f(Y)} c ${f(cx - r)} ${f(Y - k)} ${f(cx - k)} ${f(Y - r)} ${f(cx)} ${f(Y - r)} c ${f(cx + k)} ${f(Y - r)} ${f(cx + r)} ${f(Y - k)} ${f(cx + r)} ${f(Y)} c f`); }
   line(x1, y1, x2, y2, color = C_LINE, lw = 0.6) { this.cur.push(`${color.join(' ')} RG ${lw} w ${x1.toFixed(2)} ${(this.PH - y1).toFixed(2)} m ${x2.toFixed(2)} ${(this.PH - y2).toFixed(2)} l S`); }
   blob(title) {
     const objs = [], n = this.pages.length;
@@ -394,7 +423,7 @@ const COLS_OV = [
   { h: 'Permit fee', w: 13, pw: 58, t: 'money', g: r => r.permit_fee },
   { h: 'CICT fee', w: 12, pw: 48, t: 'money', g: r => r.cict_fee },
   { h: 'Paid', w: 8, pw: 0, g: r => (r.paid ? 'Yes' : 'No') },
-  { h: 'Payment type', w: 14, pw: 0, g: r => r.payment_type || '' },
+  { h: 'Payment type', w: 14, pw: 0, g: r => r.payment_type || (r.paid && !r.real_paid ? 'Override' : '') },
   { h: 'Stage', w: 16, pw: 64, g: r => stageLabel(r) },
 ];
 const COLS_CICT = [
@@ -405,7 +434,7 @@ const COLS_CICT = [
   { h: 'Address', w: 40, pw: 170, g: r => r.address || '' },
   { h: 'Permit fee', w: 13, pw: 62, t: 'money', g: r => r.permit_fee },
   { h: 'CICT fee', w: 12, pw: 56, t: 'money', g: r => r.cict_fee },
-  { h: 'Paid', w: 8, pw: 40, g: r => (r.paid ? 'Yes' : 'No') },
+  { h: 'Paid', w: 8, pw: 40, g: r => (r.paid ? (r.by_override ? 'Yes (override)' : 'Yes') : 'No') },
 ];
 const sumC = (rows, f) => rows.reduce((a, r) => a + cents(f(r)), 0) / 100;
 function detailSheet(name, cols, rows) {
@@ -451,6 +480,136 @@ function exportOverview(fmt) {
       total: ['Total', String(sumRows.reduce((a, r) => a + r.count, 0)), money(sumC(sumRows, r => r.fees)), money(sumC(sumRows, r => r.paid)), money(sumC(sumRows, r => r.fees - r.paid)), money(sumC(sumRows, r => r.cict))] };
     return saveBlob(pdfReport({ title: 'Permit Fee Summary', lines: [per, 'Fiscal year runs Oct 1 - Sep 30. Permits are counted by date submitted.'], blocks: [sum, pdfDetailBlock(COLS_OV, rows, 'Permit detail')] }), `Permits_${tag}_${stamp()}.pdf`);
   }
+}
+
+/* ---- One dressed-up PDF page set per permit (portrait letter). Fields whose label contains "background" are never printed. ---- */
+const isBackgroundLabel = l => /background/i.test(String(l || ''));
+function pdfWrap(s, maxW, size, bold) {
+  const out = [];
+  String(s ?? '').split(/\r?\n/).forEach(par => {
+    const words = pdfClean(par).split(' ').filter(Boolean); let line = '';
+    if (!words.length) { out.push(''); return; }
+    words.forEach(w0 => {
+      let w = w0;
+      while (pdfW(w, size, bold) > maxW) { let k = w.length; while (k > 1 && pdfW(w.slice(0, k), size, bold) > maxW) k--; if (line) { out.push(line); line = ''; } out.push(w.slice(0, k)); w = w.slice(k); }
+      if (!w) return;
+      const t = line ? line + ' ' + w : w;
+      if (pdfW(t, size, bold) <= maxW) line = t; else { out.push(line); line = w; }
+    });
+    out.push(line);
+  });
+  return out.length ? out : [''];
+}
+function permitStatusText(r) { return r.complete ? (r.overridden && !r.real_complete ? 'COMPLETE (OVERRIDE)' : 'COMPLETE & ISSUED') : r.paid ? 'PAYMENT RECEIVED' : r.inspection_started ? 'IN INSPECTION' : 'SUBMITTED'; }
+function permitPdfBlob(recs) {
+  const doc = new PdfDoc(612, 792), M = 44, W = 612 - 2 * M, LH = 11.5, LIM = 792 - 54;
+  const C_ACC = rgb('#4B7A45'), C_OK = rgb('#3D7A5C'), C_PALE = rgb('#C9D8E6'), C_MID = rgb('#9AAAB4');
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const spans = []; let y = 0, rec = null, startPage = 0;
+  const band = first => {
+    doc.addPage();
+    if (first) {
+      doc.rect(0, 0, 612, 84, C_PRIMARY); doc.rect(0, 84, 612, 4, C_ACC);
+      doc.text('CITY OF ARAB, ALABAMA', M, 34, { size: 9, bold: true, color: C_PALE });
+      doc.text('Permit Record', M, 62, { size: 24, bold: true, color: C_WHITE });
+      doc.text(rec.label || '', 612 - M, 42, { size: 11, bold: true, color: C_WHITE, align: 'right' });
+      doc.text('Generated ' + today, 612 - M, 60, { size: 8.5, color: C_PALE, align: 'right' });
+      y = 112;
+    } else {
+      doc.rect(0, 0, 612, 30, C_PRIMARY); doc.rect(0, 30, 612, 2.5, C_ACC);
+      doc.text('Permit # ' + (rec.permit_no || ''), M, 20, { size: 10, bold: true, color: C_WHITE });
+      doc.text((rec.label || '') + ' - continued', 612 - M, 20, { size: 8.5, color: C_PALE, align: 'right' });
+      y = 54;
+    }
+  };
+  recs.forEach(r => {
+    rec = r; startPage = doc.pages.length; band(true);
+    // permit number + status pill
+    doc.text('Permit # ' + (r.permit_no || '-'), M, y + 16, { size: 20, bold: true, color: C_PRIMARY });
+    const st = permitStatusText(r), sw = pdfW(st, 8.5, true) + 22, sc = r.complete ? C_OK : C_PRIMARY;
+    doc.rect(612 - M - sw, y + 1, sw, 21, sc); doc.text(st, 612 - M - sw / 2, y + 15, { size: 8.5, bold: true, color: C_WHITE, align: 'center' });
+    y += 40;
+    // four-stage tracker
+    const n = r.inspections ? Object.keys(r.inspections).length : 0;
+    const steps = [{ t: 'Submitted', done: true, cap: 'Received ' + fmtDate(r.submitted_on) }];
+    if (r.has_inspections) steps.push({ t: 'Inspection', done: !!r.inspection_started, cap: r.inspection_started ? 'Inspections recorded' : 'Not started yet' });
+    steps.push({ t: 'Payment received', done: !!r.paid, cap: r.paid ? (r.paid && !r.real_paid ? 'Recorded by override' : 'Payment received') : 'Not received yet' });
+    steps.push({ t: 'Complete & issued', done: !!r.complete, cap: r.complete ? 'Permit issued' : (r.coo_given ? 'Awaiting payment' : r.paid ? 'Awaiting Certificate of Occupancy' : 'Not issued yet') });
+    const cy = y + 14, colW = W / steps.length;
+    steps.forEach((sp, i) => {
+      const cx = M + colW * (i + 0.5);
+      if (i < steps.length - 1) doc.line(cx + 15, cy, cx + colW - 15, cy, sp.done && steps[i + 1].done ? C_OK : C_LINE, 2.2);
+    });
+    steps.forEach((sp, i) => {
+      const cx = M + colW * (i + 0.5);
+      if (sp.done) { doc.circle(cx, cy, 12, C_OK); doc.line(cx - 5, cy + 0.5, cx - 1.5, cy + 4, C_WHITE, 2); doc.line(cx - 1.5, cy + 4, cx + 5.5, cy - 4, C_WHITE, 2); }
+      else { doc.circle(cx, cy, 12, C_MID); doc.circle(cx, cy, 10.2, C_WHITE); doc.text(String(i + 1), cx, cy + 3.6, { size: 10, bold: true, color: C_GRAY, align: 'center' }); }
+      doc.text(sp.t, cx, cy + 27, { size: 8.5, bold: true, color: sp.done ? C_PRIMARY : C_GRAY, align: 'center' });
+      pdfWrap(sp.cap, colW - 10, 7.5, false).slice(0, 2).forEach((ln, k) => doc.text(ln, cx, cy + 38 + k * 9, { size: 7.5, color: C_GRAY, align: 'center' }));
+    });
+    y = cy + 62;
+    // summary card
+    const half = (W - 32) / 2, pay = r.payment_type || (r.paid && !r.real_paid ? 'Recorded by override' : r.paid ? 'Received' : 'Not received');
+    const cells = [
+      [['Applicant', r.applicant || '-'], ['Date submitted', fmtDate(r.submitted_on)]],
+      [['Property address', r.address || '-']],
+      [['Permit fee', money(r.permit_fee)], ['CICT fee', money(r.cict_fee)]],
+      [['Payment', pay], ['Certificate of Occupancy', r.coo_given ? 'Given' : 'Not yet']],
+    ].map(row => row.map(([l, v]) => ({ l, v, lines: pdfWrap(v, (row.length === 1 ? W - 32 : half) - 4, 11, true).slice(0, 3) })));
+    const rowH = row => 11 + Math.max(...row.map(c => c.lines.length)) * 14 + 8;
+    const cardH = 12 + cells.reduce((a, row) => a + rowH(row), 0);
+    doc.rect(M, y, W, cardH, C_ZEBRA); doc.rect(M, y, 4, cardH, C_ACC);
+    doc.line(M, y, M + W, y); doc.line(M, y + cardH, M + W, y + cardH); doc.line(M + W, y, M + W, y + cardH);
+    let cyy = y + 12;
+    cells.forEach(row => {
+      row.forEach((c, i) => {
+        const x = M + 18 + i * (half + 8);
+        doc.text(c.l.toUpperCase(), x, cyy + 6, { size: 7, bold: true, color: C_GRAY });
+        c.lines.forEach((ln, k) => doc.text(ln, x, cyy + 20 + k * 14, { size: 11, bold: true }));
+      });
+      cyy += rowH(row);
+    });
+    y += cardH + 26;
+    // application details
+    const details = (r.details || []).filter(d => d && !isBackgroundLabel(d.l) && String(d.v ?? '').trim() !== '');
+    doc.text('Application details', M, y, { size: 13, bold: true, color: C_PRIMARY });
+    doc.line(M, y + 6, M + W, y + 6, C_ACC, 1.4); y += 18;
+    if (!details.length) {
+      pdfWrap('The full sheet details are not stored yet for this permit. They are added the next time the Google Sheet syncs (Sheets & Sync tab, Sync now).', W, 9, false).forEach(ln => { doc.text(ln, M, y + 8, { size: 9, color: C_GRAY }); y += LH; });
+    }
+    const LW = 190; let zebra = false;
+    details.forEach(d => {
+      const vl = pdfWrap(d.v, W - LW - 12, 9, false), ll = pdfWrap(d.l, LW - 16, 8.5, true);
+      let i = 0, first = true;
+      while (i < Math.max(vl.length, ll.length) || first) {
+        const avail = Math.floor((LIM - y - 8) / LH);
+        if (avail < Math.min(Math.max(vl.length, ll.length) - i, 2)) { band(false); continue; }
+        const take = Math.min(avail, Math.max(vl.length, ll.length) - i), h = take * LH + 8;
+        if (zebra) doc.rect(M, y, W, h, C_ZEBRA);
+        (first ? ll : []).slice(0, take).forEach((ln, k) => doc.text(ln, M + 8, y + 6 + LH * (k + 1) - 3, { size: 8.5, bold: true, color: C_GRAY }));
+        vl.slice(i, i + take).forEach((ln, k) => doc.text(ln, M + LW, y + 6 + LH * (k + 1) - 3, { size: 9 }));
+        y += h; i += take; first = false;
+        if (i >= Math.max(vl.length, ll.length)) break;
+        band(false);
+      }
+      zebra = !zebra;
+    });
+    doc.line(M, y + 1, M + W, y + 1);
+    spans.push({ from: startPage, to: doc.pages.length, no: r.permit_no || '' });
+  });
+  spans.forEach(sp => {
+    for (let pgi = sp.from; pgi < sp.to; pgi++) {
+      doc.cur = doc.pages[pgi];
+      doc.line(M, 792 - 40, 612 - M, 792 - 40);
+      doc.text('City of Arab Permit Status  |  Permit # ' + sp.no + '  |  Internal record - contains applicant information', M, 792 - 26, { size: 7.5, color: C_GRAY });
+      doc.text(`Page ${pgi - sp.from + 1} of ${sp.to - sp.from}`, 612 - M, 792 - 26, { size: 7.5, color: C_GRAY, align: 'right' });
+    }
+  });
+  return doc.blob(recs.length === 1 ? 'Permit ' + (recs[0].permit_no || '') : 'Permit records');
+}
+function savePermitPdf(recs) {
+  const safe = t => String(t || 'permit').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'permit';
+  saveBlob(permitPdfBlob(recs), recs.length === 1 ? `Permit_${safe(recs[0].permit_no)}.pdf` : `Permits_${recs.length}_${stamp()}.pdf`);
 }
 function crBasis(cr) { return cr.paidOnly ? 'Paid permits only' : 'All submitted permits (paid and unpaid)'; }
 function crTitle(cr) { return cr.month === 'all' ? `${fyLabel(cr.fy)} (${fyRangeText(cr.fy)})` : `${monthLabel(cr.fy, +cr.month)} (${fyLabel(cr.fy)})`; }
@@ -512,6 +671,7 @@ const realApi = {
   cict: (fy, m, paid) => rpc('pm_staff_cict', { p_token: tok(), p_fy: fy, p_month: m, p_paid_only: !!paid }),
   saveSource: (s, url, mapping) => rpc('pm_staff_save_source', { p_token: tok(), p_source: s, p_url: url, p_mapping: mapping }),
   sync: s => rpc('pm_staff_sync', { p_token: tok(), p_source: s }),
+  permitDetail: items => rpc('pm_staff_permit_detail', { p_token: tok(), p_items: items }),
   override: (items, action, pw, reason) => rpc('pm_staff_override', { p_token: tok(), p_items: items, p_action: action, p_password: pw, p_reason: reason }),
   users: () => rpc('pm_staff_users_list', { p_token: tok() }),
   userAdd: f => rpc('pm_staff_user_add', { p_token: tok(), p_username: f.username, p_full_name: f.full_name, p_role: f.role, p_password: f.password }),
@@ -557,22 +717,30 @@ const demoApi = {
   },
   async summary(fy) {
     await wait(120); const o = {};
-    SOURCES.forEach(s => { const rs = DEMO_ROWS.filter(r => r.source === s.key && inFy(r, fy)); o[s.key] = { label: s.label, count: rs.length, fees: sumC(rs, r => r.permit_fee), fees_paid: sumC(rs.filter(r => r.paid), r => r.permit_fee), cict: sumC(rs, r => r.cict_fee) }; });
+    SOURCES.forEach(s => { const rs = DEMO_ROWS.filter(r => r.source === s.key && inFy(r, fy)); o[s.key] = { label: s.label, count: rs.length, fees: sumC(rs, r => r.permit_fee), fees_paid: sumC(rs.filter(r => r.paid || demoOv[dKey(r)]), r => r.permit_fee), fees_paid_override: sumC(rs.filter(r => !r.paid && demoOv[dKey(r)]), r => r.permit_fee), cict: sumC(rs, r => r.cict_fee) }; });
     return o;
   },
-  async permits(fy) { await wait(120); demoNeed(2); return DEMO_ROWS.filter(r => inFy(r, fy)).map(r => { const o = demoOv[dKey(r)]; return o ? { ...r, overridden: true, override_reason: o.reason, override_by: o.by, override_at: o.at } : r; }).sort((a, b) => String(b.submitted_on).localeCompare(String(a.submitted_on)) || String(a.permit_no).localeCompare(String(b.permit_no))); },
+  async permits(fy) { await wait(120); demoNeed(2); return DEMO_ROWS.filter(r => inFy(r, fy)).map(r => { const o = demoOv[dKey(r)]; return o ? { ...r, overridden: true, real_paid: r.paid, real_complete: r.complete, paid: true, inspection_started: true, coo_given: true, complete: true, override_reason: o.reason, override_by: o.by, override_at: o.at } : { ...r, real_paid: r.paid, real_complete: r.complete }; }).sort((a, b) => String(b.submitted_on).localeCompare(String(a.submitted_on)) || String(a.permit_no).localeCompare(String(b.permit_no))); },
   async cict(fy, m, paid) {
     await wait(120);
     let from, to;
     if (m == null) { from = `${fy - 1}-10-01`; to = `${fy}-09-30`; }
     else { const y = monthYear(fy, m), last = new Date(Date.UTC(y, m, 0)).getUTCDate(); from = `${y}-${String(m).padStart(2, '0')}-01`; to = `${y}-${String(m).padStart(2, '0')}-${last}`; }
-    const rows = DEMO_ROWS.filter(r => r.submitted_on >= from && r.submitted_on <= to && r.cict_fee > 0 && (!paid || r.paid)).sort((a, b) => a.submitted_on.localeCompare(b.submitted_on) || String(a.permit_no).localeCompare(String(b.permit_no)));
+    const rows = DEMO_ROWS.filter(r => r.submitted_on >= from && r.submitted_on <= to && r.cict_fee > 0).map(r => { const bo = !r.paid && !!demoOv[dKey(r)]; return { ...r, paid: r.paid || bo, by_override: bo }; }).filter(r => !paid || r.paid).sort((a, b) => a.submitted_on.localeCompare(b.submitted_on) || String(a.permit_no).localeCompare(String(b.permit_no)));
     const bm = {}; rows.forEach(r => { const k = r.submitted_on.slice(0, 7); (bm[k] = bm[k] || { month: k, count: 0, cents: 0 }); bm[k].count++; bm[k].cents += cents(r.cict_fee); });
-    return { from, to, total: sumC(rows, r => r.cict_fee), paid_total: sumC(rows.filter(r => r.paid), r => r.cict_fee), count: rows.length,
+    return { from, to, total: sumC(rows, r => r.cict_fee), paid_total: sumC(rows.filter(r => r.paid), r => r.cict_fee), override_total: sumC(rows.filter(r => r.by_override), r => r.cict_fee), override_count: rows.filter(r => r.by_override).length, count: rows.length,
       by_source: SOURCES.map(s => { const rs = rows.filter(r => r.source === s.key); return { source: s.key, label: s.label, count: rs.length, cict: sumC(rs, r => r.cict_fee) }; }),
       by_month: Object.values(bm).sort((a, b) => a.month.localeCompare(b.month)).map(x => ({ month: x.month, count: x.count, cict: x.cents / 100 })), rows: demoMe().role === 'viewer' ? [] : rows };
   },
   async saveSource() { demoNeed(3); return { ok: false, error: 'Demo mode' }; }, async sync() { demoNeed(3); return {}; },
+  async permitDetail(items) {
+    await wait(150); demoNeed(2);
+    return items.map(it => DEMO_ROWS.find(r => dKey(r) === [it.source, it.permit_no || '', it.submitted_on || ''].join('|'))).filter(Boolean).map(r => {
+      const o = demoOv[dKey(r)]; const inspN = Object.keys(r.inspections || {});
+      const details = [['Permit #', r.permit_no], ['Submission Date', fmtDate(r.submitted_on)], ['Applicant Name', r.applicant], ['Address', r.address], ['Estimated Cost Background', '$250,000'], ['Permit Fee', money(r.permit_fee)], ['Permit Fee Background', money(r.permit_fee)], ['CICT Fee', money(r.cict_fee)], ['Type of Payment Received', r.payment_type]].concat(inspN.map(k => [k + ' Inspection', r.inspections[k]])).concat([['Notes', 'Sample record (demo data). This is a long note used to show how longer text wraps neatly onto the next line inside the value column of the permit PDF.']]).map(([l, v]) => ({ l, v: v == null ? '' : String(v) })).filter(d => d.v !== '');
+      return { ...r, has_inspections: true, overridden: !!o, real_paid: r.paid, real_complete: r.complete, paid: r.paid || !!o, inspection_started: r.inspection_started || !!o, coo_given: r.coo_given || !!o, complete: r.complete || !!o, details };
+    });
+  },
   async override(items, action, pw, reason) {
     demoNeed(3); const me = demoMe();
     if (!['set', 'clear'].includes(action)) return { ok: false, error: 'Unknown action.' };
@@ -696,22 +864,22 @@ function ovRows() {
 }
 function permitTableHTML() {
   const o = S.ov; if (!o.permits) return '<div class="spinner"></div>';
-  const { rows, shown } = ovRows(); const adm = isAdmin();
+  const { rows, shown } = ovRows(); const adm = canDetail();
   if (!rows.length) return '<div class="empty">No permits match.</div>';
   const selectable = shown.filter(r => r.permit_no), allOn = selectable.length > 0 && selectable.every(r => o.sel[ovKey(r)]);
   return `<div class="table-wrap"><table class="admin-table"><thead><tr>${adm ? `<th class="chk"><input type="checkbox" data-selall="1" aria-label="Select all shown"${allOn ? ' checked' : ''}></th>` : ''}<th>Permit #</th><th>Type</th><th>Submitted</th><th>Applicant</th><th>Address</th><th class="num">Permit fee</th><th class="num">CICT</th><th>Stage</th></tr></thead><tbody>
-    ${shown.map(r => `<tr>${adm ? `<td class="chk"><input type="checkbox" data-sel="${esc(ovKey(r))}"${o.sel[ovKey(r)] ? ' checked' : ''}${r.permit_no ? '' : ' disabled title="No permit number"'} aria-label="Select permit ${esc(r.permit_no || '')}"></td>` : ''}<td>${esc(r.permit_no || '—')}</td><td>${esc(r.label)}</td><td>${fmtDate(r.submitted_on)}</td><td>${esc(r.applicant || '')}</td><td>${esc(r.address || '')}</td><td class="num">${money(r.permit_fee)}</td><td class="num">${money(r.cict_fee)}</td><td><span class="pill ${r.overridden && !r.complete ? 's-ovr' : 's-' + stageOf(r)}"${r.overridden ? ` title="${esc('Override by ' + (r.override_by || '') + (r.override_reason ? ': ' + r.override_reason : ''))}"` : ''}>${stageLabel(r)}</span></td></tr>`).join('')}
+    ${shown.map(r => `<tr>${adm ? `<td class="chk"><input type="checkbox" data-sel="${esc(ovKey(r))}"${o.sel[ovKey(r)] ? ' checked' : ''}${r.permit_no ? '' : ' disabled title="No permit number"'} aria-label="Select permit ${esc(r.permit_no || '')}"></td>` : ''}<td>${esc(r.permit_no || '—')}</td><td>${esc(r.label)}</td><td>${fmtDate(r.submitted_on)}</td><td>${esc(r.applicant || '')}</td><td>${esc(r.address || '')}</td><td class="num">${money(r.permit_fee)}</td><td class="num">${money(r.cict_fee)}</td><td><span class="pill ${ovOnly(r) ? 's-ovr' : 's-' + stageOf(r)}"${r.overridden ? ` title="${esc('Override by ' + (r.override_by || '') + (r.override_reason ? ': ' + r.override_reason : ''))}"` : ''}>${stageLabel(r)}</span></td></tr>`).join('')}
   </tbody></table></div><div class="hint" style="margin-top:8px">${rows.length > shown.length ? `Showing the first ${shown.length} of ${rows.length} permits — export to get the full list.` : `${rows.length} permit${rows.length === 1 ? '' : 's'}.`}</div>`;
 }
 function selBarHTML() {
-  if (!isAdmin()) return '';
-  const o = S.ov, n = Object.keys(o.sel).length;
-  if (!n) return '<div class="hint" style="margin:10px 0 0">Administrators: tick permits in the table to mark them complete (an override). You will be asked for your password.</div>';
+  if (!canDetail()) return '';
+  const o = S.ov, n = Object.keys(o.sel).length, adm = isAdmin();
+  if (!n) return `<div class="hint" style="margin:10px 0 0">Tick permits in the table to download a permit PDF${adm ? ', or to mark them complete (an override, which asks for your password)' : ''}.</div>`;
   const picked = (o.permits || []).filter(r => o.sel[ovKey(r)]), nOv = picked.filter(r => r.overridden).length;
-  if (!o.confirm) return `<div class="selbar"><b>${n} selected</b><button class="btn small solid" data-act="ov-start-set" type="button">Mark complete…</button>${nOv ? `<button class="btn small" data-act="ov-start-clear" type="button">Remove override (${nOv})</button>` : ''}<button class="link" data-act="ov-clear-sel" type="button">Clear selection</button></div>`;
+  if (!o.confirm) return `<div class="selbar"><b>${n} selected</b><button class="btn small solid" data-act="permit-pdf" type="button"${o.pdfBusy ? ' disabled' : ''}>${o.pdfBusy ? 'Preparing PDF…' : n === 1 ? 'Download permit PDF' : `Download PDF (${n} permits)`}</button>${adm ? `<button class="btn small" data-act="ov-start-set" type="button">Mark complete…</button>${nOv ? `<button class="btn small" data-act="ov-start-clear" type="button">Remove override (${nOv})</button>` : ''}` : ''}<button class="link" data-act="ov-clear-sel" type="button">Clear selection</button></div>`;
   const setting = o.confirm === 'set';
   return `<div class="selbar confirm"><div class="section-title" style="font-size:15px">${setting ? `Mark ${n} permit${n === 1 ? '' : 's'} complete?` : `Remove the override from ${n} permit${n === 1 ? '' : 's'}?`}</div>
-    <p class="section-sub">${setting ? 'Every step will show as complete when the applicant looks the permit up. The sheet data and the fee totals are not changed, and this is recorded in a log.' : 'These permits go back to showing whatever the sheet says.'}</p>
+    <p class="section-sub">${setting ? 'Every step will show as complete when the applicant looks the permit up. Paid, inspection, Certificate of Occupancy and complete will all show as done, and the paid totals and CICT paid-only report will count these permits as paid. The fee amounts and the Google Sheet are not changed, and this is recorded in a log.' : 'These permits go back to showing whatever the sheet says.'}</p>
     <div class="row2"><div class="field"><label for="ov_reason">Reason (optional, kept in the log)</label><input id="ov_reason" maxlength="300" autocomplete="off"></div>
       <div class="field"><label for="ov_pw">Your password <span class="req">*</span></label><input id="ov_pw" type="password" autocomplete="current-password"></div></div>
     <div class="btnrow"><button class="btn solid" data-act="ov-confirm" type="button"${o.busy ? ' disabled' : ''}>${o.busy ? 'Checking…' : setting ? 'Approve and mark complete' : 'Remove override'}</button><button class="btn" data-act="ov-cancel" type="button">Cancel</button></div></div>`;
@@ -724,7 +892,7 @@ function refreshOv(tableToo) {
 function overviewView() {
   const o = S.ov, sm = o.summary;
   const stat = (i, s) => { const x = sm && sm[s.key]; return `<div class="stat ${['', 'b2', 'b3'][i]}"><div class="k">${s.key === 'sign' ? 'Sign permit fees' : 'Building permit fees — ' + (s.key === 'building' ? 'Contractor/Owner' : 'Sub Trade')}</div>
-    <div class="amt">${x ? money(x.fees) : '…'}</div><div class="sub">${x ? `${x.count} permit${x.count === 1 ? '' : 's'} · ${money(x.fees_paid)} paid · ${money(x.fees - x.fees_paid)} unpaid` : ''}</div></div>`; };
+    <div class="amt">${x ? money(x.fees) : '…'}</div><div class="sub">${x ? `${x.count} permit${x.count === 1 ? '' : 's'} · ${money(x.fees_paid)} paid · ${money(x.fees - x.fees_paid)} unpaid${x.fees_paid_override ? ` · ${money(x.fees_paid_override)} of the paid is by override` : ''}` : ''}</div></div>`; };
   const c = S.cc, cd = c.data;
   return `<div class="toolbar"><div class="field"><label for="ov_fy">Fiscal year</label><select id="ov_fy" data-bind="ov.fy">${fyOptions(o.fy, true)}</select></div>${canDetail() ? exportBtns('ov-export', !!sm && !!o.permits) : ''}</div>
     ${S.meta && S.meta.undated ? `<div class="banner caution">${S.meta.undated} permit row${S.meta.undated === 1 ? ' has' : 's have'} no readable submission date. They count in “Overall” but not in any fiscal year.</div>` : ''}
@@ -746,11 +914,11 @@ function cictTabView() {
   let result;
   if (c.loading || !d) result = '<div class="spinner"></div>';
   else result = `<div class="center" style="padding:6px 0 14px"><div style="font-size:12.5px;font-weight:600;color:var(--ink-soft)">Total CICT fees — ${esc(crTitle(c))}</div><div class="amt" style="font-family:var(--serif);font-size:38px;font-weight:700;color:var(--primary)">${money(d.total)}</div>
-      <div class="hint">${d.count} permit${d.count === 1 ? '' : 's'} with a CICT fee · submitted ${fmtDate(d.from)} – ${fmtDate(d.to)} · ${esc(crBasis(c))}${c.paidOnly ? '' : ` · ${money(d.paid_total)} of this is on paid permits`}</div></div>
+      <div class="hint">${d.count} permit${d.count === 1 ? '' : 's'} with a CICT fee · submitted ${fmtDate(d.from)} – ${fmtDate(d.to)} · ${esc(crBasis(c))}${c.paidOnly ? '' : ` · ${money(d.paid_total)} of this is on paid permits`}${d.override_count ? ` · includes ${money(d.override_total)} on ${d.override_count} permit${d.override_count === 1 ? '' : 's'} counted as paid by override` : ''}</div></div>
     <div class="row2" style="gap:24px"><div><div class="section-title" style="font-size:14.5px">By permit type</div>${d.by_source.map(s => `<div class="kv"><span class="k">${esc(s.label)} <span class="hint">(${s.count})</span></span><span>${money(s.cict)}</span></div>`).join('')}<div class="kv total"><span>Total</span><span>${money(d.total)}</span></div></div>
       <div>${c.month === 'all' ? `<div class="section-title" style="font-size:14.5px">By month</div>${d.by_month.length ? d.by_month.map(m => { const [y, mm] = m.month.split('-').map(Number); return `<div class="kv"><span class="k">${MONTHS[mm - 1]} ${y} <span class="hint">(${m.count})</span></span><span>${money(m.cict)}</span></div>`; }).join('') : '<div class="hint">No CICT fees in this year.</div>'}` : ''}</div></div>
     ${!canDetail() ? '' : `<div class="table-wrap"><table class="admin-table"><thead><tr><th>Permit #</th><th>Type</th><th>Submitted</th><th>Applicant</th><th>Address</th><th class="num">Permit fee</th><th class="num">CICT fee</th><th>Paid</th></tr></thead><tbody>
-      ${d.rows.map(r => `<tr><td>${esc(r.permit_no || '—')}</td><td>${esc(r.label)}</td><td>${fmtDate(r.submitted_on)}</td><td>${esc(r.applicant || '')}</td><td>${esc(r.address || '')}</td><td class="num">${money(r.permit_fee)}</td><td class="num">${money(r.cict_fee)}</td><td>${r.paid ? 'Yes' : 'No'}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No permits with a CICT fee in this period.</td></tr>'}
+      ${d.rows.map(r => `<tr><td>${esc(r.permit_no || '—')}</td><td>${esc(r.label)}</td><td>${fmtDate(r.submitted_on)}</td><td>${esc(r.applicant || '')}</td><td>${esc(r.address || '')}</td><td class="num">${money(r.permit_fee)}</td><td class="num">${money(r.cict_fee)}</td><td>${r.paid ? (r.by_override ? 'Yes (override)' : 'Yes') : 'No'}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No permits with a CICT fee in this period.</td></tr>'}
       ${d.rows.length ? `<tr class="tot"><td colspan="5">Total</td><td class="num">${money(sumC(d.rows, r => r.permit_fee))}</td><td class="num">${money(sumC(d.rows, r => r.cict_fee))}</td><td></td></tr>` : ''}</tbody></table></div>`}`;
   return `<div class="card"><div class="section-title">CICT fee report</div><p class="section-sub">${canDetail() ? 'Choose the period, then export the results for the monthly report.' : 'Choose the period to see the totals.'}</p>
       <div class="row2" style="grid-template-columns:1fr 1fr 1fr">
@@ -947,6 +1115,19 @@ document.addEventListener('click', async e => {
     if (r) toast(r.error || 'Could not save.', true);
     refreshOv(false); const pi = document.getElementById('ov_pw'); if (pi) pi.focus();
   }
+  else if (act === 'permit-pdf') {
+    const o = S.ov; if (o.pdfBusy) return;
+    const items = (o.permits || []).filter(r => o.sel[ovKey(r)] && r.permit_no).map(r => ({ source: r.source, permit_no: r.permit_no, submitted_on: r.submitted_on }));
+    if (!items.length) return;
+    o.pdfBusy = true; refreshOv(false);
+    const recs = await guard(() => api.permitDetail(items)); o.pdfBusy = false; refreshOv(false);
+    if (!recs) return;
+    if (!recs.length) return toast('Could not find those permits. Refresh the list and try again.', true);
+    try { savePermitPdf(recs); toast(recs.length === 1 ? 'Permit PDF downloaded.' : `${recs.length} permits downloaded in one PDF.`); } catch (x) { toast('Could not build the PDF.', true); }
+  }
+  else if (act === 'rel-close') relClose();
+  else if (act === 'rel-open') showRelease();
+  else if (act === 'rel-banner-x') relHideBanner();
   else if (act === 'ov-export') exportOverview(el.dataset.fmt);
   else if (act === 'cict-export') exportCict(el.dataset.fmt);
   else if (act === 'save-src' || act === 'save-sync') {
@@ -964,9 +1145,68 @@ document.addEventListener('click', async e => {
   }
 });
 
+
+/* ====================================================================
+   UPDATE NOTICE — bump RELEASE every time the site is updated.
+   Shows on every visit and refresh, shrinks into a top banner when closed,
+   and the banner goes away by itself after about a minute.
+   ==================================================================== */
+const RELEASE = {
+  version: '1.3', date: 'September 19, 2026', title: 'The permit site was updated',
+  notes: [
+    'Marking a permit complete now also counts it as paid in the dashboard paid/unpaid amounts and the CICT paid-only report. The fee amounts themselves are not changed, and the dashboard shows how much of the paid total is by override.',
+    'Select any permit in the list to download a dressed-up PDF of the whole record (staff and administrators). Fields with "background" in their name are left out.',
+    'This notice appears whenever the site is updated, and after you close it, it stays as a banner at the top for about a minute.',
+  ],
+};
+const REL_MS = 60000; let relTimer = null, relClose = () => {}, relKey = null;
+function relHideBanner() {
+  clearTimeout(relTimer); relTimer = null;
+  const b = document.getElementById('relBanner'); if (!b) return;
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const done = () => { if (b.parentNode) b.remove(); };
+  if (reduce || !b.animate) return done();
+  b.animate([{ height: b.offsetHeight + 'px', opacity: 1 }, { height: '0px', opacity: 0 }], { duration: 350, easing: 'ease', fill: 'forwards' }).finished.then(done, done);
+}
+function showRelease() {
+  const root = document.getElementById('relRoot'); if (!root) return;
+  clearTimeout(relTimer); if (relKey) document.removeEventListener('keydown', relKey); root.innerHTML = '';
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const ov = document.createElement('div'); ov.className = 'rel-overlay';
+  ov.innerHTML = `<div class="rel-card" role="dialog" aria-modal="true" aria-labelledby="rel_t" tabindex="-1">
+    <button class="rel-x" data-act="rel-close" type="button" aria-label="Close and minimize">×</button>
+    <span class="rel-tag">Updated</span><h2 id="rel_t">${esc(RELEASE.title)}</h2>
+    <p class="rel-ver">Version ${esc(RELEASE.version)} · ${esc(RELEASE.date)}</p>
+    <ul>${RELEASE.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>
+    <button class="btn solid" data-act="rel-close" type="button">Got it</button></div>`;
+  root.appendChild(ov); const card = ov.firstElementChild;
+  const btns = card.querySelectorAll('button'); btns[btns.length - 1].focus();
+  let closed = false;
+  relKey = e => {
+    if (e.key === 'Escape') relClose();
+    else if (e.key === 'Tab') { const f = [...card.querySelectorAll('button')], i = f.indexOf(document.activeElement); e.preventDefault(); f[(i + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus(); }
+  };
+  document.addEventListener('keydown', relKey);
+  relClose = () => {
+    if (closed) return; closed = true; document.removeEventListener('keydown', relKey); relKey = null;
+    if (window.scrollY > 0) window.scrollTo(0, 0);
+    const banner = document.createElement('div'); banner.id = 'relBanner'; banner.setAttribute('role', 'status');
+    banner.innerHTML = `<div class="rel-bar"><span class="rel-pill">Updated</span><span class="rel-msg">Site updated to version ${esc(RELEASE.version)} · ${esc(RELEASE.date)}</span><button class="rel-link" data-act="rel-open" type="button">What's new</button><button class="rel-bx" data-act="rel-banner-x" type="button" aria-label="Dismiss banner">×</button></div>`;
+    root.insertBefore(banner, ov);
+    const dur = reduce || !card.animate ? 0 : 520;
+    const tr = banner.querySelector('.rel-msg').getBoundingClientRect(), cr = card.getBoundingClientRect();
+    const dx = tr.left + tr.width / 2 - (cr.left + cr.width / 2), dy = tr.top + tr.height / 2 - (cr.top + cr.height / 2);
+    const fin = () => { ov.remove(); banner.style.height = '44px'; clearTimeout(relTimer); relTimer = setTimeout(relHideBanner, REL_MS); };
+    if (!dur) return fin();
+    ov.animate([{ opacity: 1 }, { opacity: 0 }], { duration: dur, easing: 'ease', fill: 'forwards' });
+    banner.animate([{ height: '0px' }, { height: '44px' }], { duration: 300, delay: dur * 0.6, easing: 'ease-out', fill: 'forwards' });
+    card.animate([{ transform: 'translate(0,0) scale(1)', opacity: 1, borderRadius: '14px' }, { transform: `translate(${dx}px,${dy}px) scale(0.06,0.04)`, opacity: 0.25, borderRadius: '40px' }], { duration: dur, easing: 'cubic-bezier(.55,0,.25,1)', fill: 'forwards' }).finished.then(fin, fin);
+  };
+}
+
 /* ---------- init ---------- */
 (async function init() {
-  render();
+  render(); showRelease();
   let t = null, u = null; try { t = sessionStorage.getItem('pm_token'); u = sessionStorage.getItem('pm_user'); } catch (e) { /* ignore */ }
   if (t) { S.token = t; S.user = u; await enterAdmin(); if (!S.token) render(); }
   else if (location.hash === '#admin') { S.view = 'login'; render(); }
