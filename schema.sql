@@ -48,6 +48,9 @@ create table if not exists pm_permits (
   coo_given          boolean not null default false,
   complete           boolean not null default false          -- C of O given AND paid
 );
+-- Every labelled field from the sheet row (blank values and any field whose label
+-- contains "background" are left out), kept in sheet order for the permit PDF.
+alter table pm_permits add column if not exists details jsonb;
 create index if not exists pm_permits_permit_idx on pm_permits (lower(btrim(permit_no)));
 create index if not exists pm_permits_date_idx   on pm_permits (submitted_on);
 create index if not exists pm_permits_source_idx on pm_permits (source);
@@ -252,7 +255,7 @@ declare
   i_grand int[]; i_pay int[]; i_coo int[];
   insp_names text[]; insp_idx int[][]; insp_json jsonb; iv text; found_insp boolean := false;
   v_pay text; v_coo text; v_paid boolean; v_cooB boolean; v_inspB boolean; j int;
-  insp_cols int[];
+  insp_cols int[]; hraw text[]; det jsonb;
 begin
   select * into s from pm_sources where source = p_source;
   if not found then raise exception 'unknown source %', p_source; end if;
@@ -261,6 +264,7 @@ begin
   -- header row = first row returned
   select r into rec from pm_parse_csv(p_body) as r limit 1;
   if rec is null then raise exception 'The sheet came back empty.'; end if;
+  hraw := rec.r;
   hn := array(select pm_norm(x) from unnest(rec.r) with ordinality as t(x, o) order by o);
 
   i_permit := pm_idx(hn, m->'permit_no');
@@ -305,14 +309,21 @@ begin
       end if;
     end loop;
 
+    select coalesce(jsonb_agg(jsonb_build_object('l', y.h, 'v', y.v) order by y.pos), '[]'::jsonb) into det
+      from (select x.pos, x.h, x.v, row_number() over (partition by x.h, x.v order by x.pos) as rn
+              from (select g.pos, btrim(hraw[g.pos]) as h, btrim(rec.f[g.pos]) as v
+                      from generate_subscripts(rec.f, 1) as g(pos)) x
+             where x.h <> '' and x.v <> '' and x.h !~* 'background') y
+     where y.rn = 1;
+
     insert into pm_permits (source, row_num, permit_no, submitted_on, applicant, address,
                             permit_fee, cict_fee, grand_total, payment_type, paid,
-                            inspections, inspection_started, coo_text, coo_given, complete)
+                            inspections, inspection_started, coo_text, coo_given, complete, details)
     values (p_source, rec.o::int, pm_val(rec.f, i_permit), pm_date(pm_val(rec.f, i_date)),
             pm_val(rec.f, i_app), pm_val(rec.f, i_addr),
             pm_money(pm_val(rec.f, i_fee)), pm_money(pm_val(rec.f, i_cict)),
             case when pm_val(rec.f, i_grand) is null then null else pm_money(pm_val(rec.f, i_grand)) end,
-            v_pay, v_paid, insp_json, v_inspB, v_coo, v_cooB, (v_cooB and v_paid));
+            v_pay, v_paid, insp_json, v_inspB, v_coo, v_cooB, (v_cooB and v_paid), det);
     n := n + 1;
   end loop;
 
@@ -584,6 +595,35 @@ begin
 end $$;
 
 -- CICT report. p_month is the calendar month number (1-12) inside the fiscal year, or null for all months.
+-- Full record for the permit PDF (staff and admin). Every stored field except any
+-- whose label contains "background".
+create or replace function pm_staff_permit_detail(p_token uuid, p_items jsonb) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform pm_require(p_token, 2);
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then return '[]'::jsonb; end if;
+  if jsonb_array_length(p_items) > 200 then raise exception 'Select 200 permits or fewer at a time.'; end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'source', p.source, 'label', s.label, 'permit_no', p.permit_no, 'submitted_on', p.submitted_on,
+      'applicant', p.applicant, 'address', p.address, 'permit_fee', p.permit_fee, 'cict_fee', p.cict_fee,
+      'payment_type', p.payment_type,
+      'paid', (p.paid or o.okey is not null), 'real_paid', p.paid,
+      'inspection_started', (p.inspection_started or o.okey is not null),
+      'coo_given', (p.coo_given or o.okey is not null),
+      'complete', (p.complete or o.okey is not null), 'real_complete', p.complete,
+      'overridden', (o.okey is not null), 'has_inspections', s.has_inspections,
+      'details', coalesce((select jsonb_agg(d order by ord) from jsonb_array_elements(coalesce(p.details, '[]'::jsonb)) with ordinality as t(d, ord)
+                            where coalesce(d->>'l', '') !~* 'background'), '[]'::jsonb)
+    ) order by p.submitted_on, p.permit_no)
+    from jsonb_array_elements(p_items) it
+    join pm_permits p on p.source = it->>'source' and nullif(btrim(p.permit_no), '') is not null
+     and pm_okey(p.permit_no, p.submitted_on) = pm_okey(it->>'permit_no', nullif(it->>'submitted_on','')::date)
+    join pm_sources s on s.source = p.source
+    left join pm_overrides o on o.source = p.source and o.okey = pm_okey(p.permit_no, p.submitted_on)
+  ), '[]'::jsonb);
+end $$;
+
 create or replace function pm_staff_cict(p_token uuid, p_fy int, p_month int, p_paid_only boolean) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 declare d1 date; d2 date; y int; out jsonb; detail boolean;
@@ -772,7 +812,7 @@ grant execute on function
   pm_staff_save_source(uuid, text, text, jsonb), pm_staff_sync(uuid, text),
   pm_staff_users_list(uuid), pm_staff_user_add(uuid, text, text, text, text), pm_staff_user_update(uuid, uuid, text, text, boolean),
   pm_staff_user_reset_password(uuid, uuid, text), pm_staff_user_delete(uuid, uuid),
-  pm_staff_override(uuid, jsonb, text, text, text)
+  pm_staff_override(uuid, jsonb, text, text, text), pm_staff_permit_detail(uuid, jsonb)
 to anon, authenticated;
 
 -- ---------------------------------------------------------------------
