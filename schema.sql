@@ -376,11 +376,12 @@ language sql immutable as $$
 $$;
 revoke all on function pm_tokens_match(text, text) from public, anon, authenticated;
 
-create or replace function pm_search_permit(p_source text, p_permit text, p_date date, p_name text, p_address text) returns jsonb
+drop function if exists pm_search_permit(text, text, date, text, text);   -- older version that also asked for a permit number
+create or replace function pm_search_permit(p_source text, p_date date, p_name text, p_address text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare q text := lower(btrim(coalesce(p_permit,''))); out jsonb;
+declare out jsonb;
 begin
-  if p_source not in ('building','subtrade','sign') or length(q) < 3 or p_date is null
+  if p_source not in ('building','subtrade','sign') or p_date is null
      or length(btrim(coalesce(p_name,''))) < 2 or length(btrim(coalesce(p_address,''))) < 4 then
     return jsonb_build_object('ok', false, 'error', 'missing');
   end if;
@@ -402,12 +403,11 @@ begin
     ) as obj
     from pm_permits p join pm_sources s on s.source = p.source
     where p.source = p_source
-      and lower(btrim(p.permit_no)) = q
       and p.submitted_on = p_date
       and pm_tokens_match(p_name, p.applicant)
       and pm_tokens_match(p_address, p.address)
-    order by p.submitted_on desc nulls last
-    limit 5
+    order by p.submitted_on desc nulls last, p.permit_no
+    limit 10
   ) t;
   return jsonb_build_object('ok', true, 'results', out);
 end $$;
@@ -578,7 +578,7 @@ begin
 end $$;
 
 grant execute on function
-  pm_search_permit(text, text, date, text, text), pm_staff_login(text, text), pm_staff_logout(uuid),
+  pm_search_permit(text, date, text, text), pm_staff_login(text, text), pm_staff_logout(uuid),
   pm_staff_change_password(uuid, text, text), pm_staff_meta(uuid), pm_staff_summary(uuid, int),
   pm_staff_permits(uuid, int), pm_staff_cict(uuid, int, int, boolean),
   pm_staff_save_source(uuid, text, text, jsonb), pm_staff_sync(uuid, text)
