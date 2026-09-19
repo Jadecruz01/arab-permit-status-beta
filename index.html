@@ -137,6 +137,25 @@
   table.admin-table tr.tot td { font-weight: 700; background: var(--surface-alt); }
   .table-wrap { overflow: auto; max-height: 460px; margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; }
   .export-card { border-left: 4px solid var(--primary); }
+  .pill.r-admin { background: var(--primary); color: #FBF9F4; }
+  .pill.r-staff { background: var(--surface-alt); color: var(--primary); border: 1px solid var(--border); }
+  .pill.r-viewer { background: var(--surface-alt); color: var(--ink-soft); border: 1px solid var(--border); }
+  table.admin-table input[type=checkbox] { width: 16px; height: 16px; padding: 0; margin: 0; vertical-align: middle; accent-color: var(--primary); }
+  table.admin-table td.chk, table.admin-table th.chk { width: 28px; padding-right: 0; }
+  .selbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0 0; padding: 10px 12px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 9px; font-size: 13.5px; }
+  .selbar.confirm { display: block; border-left: 4px solid var(--primary); background: var(--surface); }
+  .pill.s-ovr { background: var(--warn-bg); color: var(--warn); }
+  .pill.s-off { background: var(--danger-bg); color: var(--danger); }
+  .urow { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface); }
+  .urow.off { opacity: .7; }
+  .urow .top2 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .urow .nm { font-weight: 700; font-size: 15px; }
+  .urow .un { color: var(--ink-soft); font-size: 12.5px; margin-top: 2px; }
+  .urow select { width: auto; padding: 6px 10px; font-size: 13.5px; }
+  .urow .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+  .urow .acts input { width: 240px; max-width: 100%; padding: 7px 10px; font-size: 13.5px; }
+  .rolekey { margin: 2px 0 14px; padding: 0; list-style: none; font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; }
+  .rolekey b { color: var(--ink); }
   .st-ok { color: var(--success); font-weight: 600; } .st-bad { color: var(--danger); font-weight: 600; }
   details { margin-top: 10px; } summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--primary); }
   #toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); max-width: 92vw; z-index: 50; padding: 11px 16px; border-radius: 10px; font-size: 13.5px; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.2); background: var(--primary-dark); color: #fff; display: none; }
@@ -190,9 +209,9 @@ function defaultPeriod() {            // the month most recently finished — wh
   const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
   return { fy: fyOf(iso), month: d.getMonth() + 1 };
 }
-function stageOf(r) { return r.complete ? 'complete' : r.paid ? 'paid' : r.inspection_started ? 'insp' : 'sub'; }
+function stageOf(r) { return r.complete || r.overridden ? 'complete' : r.paid ? 'paid' : r.inspection_started ? 'insp' : 'sub'; }
 const STAGE_TXT = { complete: 'Complete', paid: 'Paid', insp: 'In inspection', sub: 'Submitted' };
-const stageLabel = r => STAGE_TXT[stageOf(r)];
+const stageLabel = r => (r.overridden && !r.complete ? 'Complete (override)' : STAGE_TXT[stageOf(r)]);
 
 let toastT;
 function toast(msg, bad) {
@@ -478,7 +497,7 @@ async function rpc(fn, args) {
     body: JSON.stringify(args || {}),
   });
   const text = await res.text(); let body = null; try { body = text ? JSON.parse(text) : null; } catch { body = text; }
-  if (!res.ok) { const e = new Error((body && body.message) || 'Request failed'); e.unauthorized = /unauthorized/i.test(e.message); throw e; }
+  if (!res.ok) { const e = new Error((body && body.message) || 'Request failed'); e.unauthorized = /unauthorized/i.test(e.message); e.forbidden = /forbidden/i.test(e.message); throw e; }
   return body;
 }
 const tok = () => S.token;
@@ -493,32 +512,55 @@ const realApi = {
   cict: (fy, m, paid) => rpc('pm_staff_cict', { p_token: tok(), p_fy: fy, p_month: m, p_paid_only: !!paid }),
   saveSource: (s, url, mapping) => rpc('pm_staff_save_source', { p_token: tok(), p_source: s, p_url: url, p_mapping: mapping }),
   sync: s => rpc('pm_staff_sync', { p_token: tok(), p_source: s }),
+  override: (items, action, pw, reason) => rpc('pm_staff_override', { p_token: tok(), p_items: items, p_action: action, p_password: pw, p_reason: reason }),
+  users: () => rpc('pm_staff_users_list', { p_token: tok() }),
+  userAdd: f => rpc('pm_staff_user_add', { p_token: tok(), p_username: f.username, p_full_name: f.full_name, p_role: f.role, p_password: f.password }),
+  userUpdate: (id, name, role, active) => rpc('pm_staff_user_update', { p_token: tok(), p_id: id, p_full_name: name, p_role: role, p_active: active }),
+  userReset: (id, pw) => rpc('pm_staff_user_reset_password', { p_token: tok(), p_id: id, p_new: pw }),
+  userDelete: id => rpc('pm_staff_user_delete', { p_token: tok(), p_id: id }),
 };
+const ROLES = [
+  { key: 'admin', label: 'Administrator', desc: 'Everything: dashboard, permit list, CICT report and exports, plus adding users and changing the Google Sheet links.' },
+  { key: 'staff', label: 'Staff', desc: 'Dashboard, permit list with names and addresses, CICT report, and Excel/PDF/CSV exports.' },
+  { key: 'viewer', label: 'Viewer', desc: 'Dashboard and CICT totals only. No names, addresses, or exports.' },
+];
+const roleLabel = k => (ROLES.find(r => r.key === k) || {}).label || k || '';
+const isAdmin = () => S.role === 'admin';
+const canDetail = () => S.role === 'admin' || S.role === 'staff';
 const DEMO_ROWS = [];
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const toks = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
 const tokMatch = (inp, stored) => { const i = toks(inp), s = toks(stored); return i.length > 0 && i.every(t => s.some(x => x === t || (t.length >= 3 && x.startsWith(t)) || (x.length >= 3 && t.startsWith(x)))); };
 const inFy = (r, fy) => fy == null || (r.submitted_on && fyOf(r.submitted_on) === fy);
+const demoUsers = [{ id: 'u1', username: 'admin', full_name: 'Demo Administrator', role: 'admin', active: true, created_at: new Date().toISOString(), last_login_at: null, pw: 'demo1234' }];
+const demoOv = {};
+const dKey = r => [r.source, r.permit_no || '', r.submitted_on || ''].join('|');
+const demoMe = () => demoUsers.find(u => 'demo:' + u.id === S.token) || { id: null, role: 'viewer' };
+const demoNeed = lvl => { const r = demoMe().role, l = r === 'admin' ? 3 : r === 'staff' ? 2 : 1; if (l < lvl) { const e = new Error('forbidden'); e.forbidden = true; throw e; } };
 const demoApi = {
   async search(f) {
     await wait(250);
     if (!f.type || !f.date || String(f.name).trim().length < 2 || String(f.addr).trim().length < 4) return { ok: false, error: 'missing' };
     const res = DEMO_ROWS.filter(r => r.source === f.type && r.submitted_on === f.date && tokMatch(f.name, r.applicant) && tokMatch(f.addr, r.address))
-      .slice(0, 5).map(r => ({ ...r, has_inspections: true }));
+      .slice(0, 5).map(r => { const o = !!demoOv[dKey(r)]; return { ...r, has_inspections: true, inspection_started: r.inspection_started || o, paid: r.paid || o, coo_given: r.coo_given || o, complete: r.complete || o }; });
     return { ok: true, results: res };
   },
-  async login(u, p) { await wait(200); return u.trim().toLowerCase() === 'admin' && p === 'demo1234' ? { ok: true, token: 'demo', username: 'admin' } : { ok: false, error: 'invalid' }; },
+  async login(u, p) {
+    await wait(200); const x = demoUsers.find(z => z.username === u.trim().toLowerCase());
+    if (!x || !x.active || x.pw !== p) return { ok: false, error: 'invalid' };
+    x.last_login_at = new Date().toISOString(); return { ok: true, token: 'demo:' + x.id, username: x.username, role: x.role };
+  },
   async logout() {}, async changePassword() { return { ok: false, error: 'Password changes are disabled in demo mode.' }; },
   async meta() {
     const yrs = [...new Set(DEMO_ROWS.map(r => fyOf(r.submitted_on)).filter(Boolean).concat([fyOf(todayISO())]))].sort((a, b) => b - a);
-    return { years: yrs, undated: 0, sources: SOURCES.map(s => ({ source: s.key, label: s.label, csv_url: '', mapping: {}, last_sync_at: null, last_sync_ok: null, last_sync_msg: 'Demo mode', last_sync_rows: DEMO_ROWS.filter(r => r.source === s.key).length, last_missing: [], has_inspections: true })) };
+    return { role: demoMe().role, username: demoMe().username, full_name: demoMe().full_name, years: yrs, undated: 0, sources: SOURCES.map(s => ({ source: s.key, label: s.label, csv_url: '', mapping: {}, last_sync_at: null, last_sync_ok: null, last_sync_msg: 'Demo mode', last_sync_rows: DEMO_ROWS.filter(r => r.source === s.key).length, last_missing: [], has_inspections: true })) };
   },
   async summary(fy) {
     await wait(120); const o = {};
     SOURCES.forEach(s => { const rs = DEMO_ROWS.filter(r => r.source === s.key && inFy(r, fy)); o[s.key] = { label: s.label, count: rs.length, fees: sumC(rs, r => r.permit_fee), fees_paid: sumC(rs.filter(r => r.paid), r => r.permit_fee), cict: sumC(rs, r => r.cict_fee) }; });
     return o;
   },
-  async permits(fy) { await wait(120); return DEMO_ROWS.filter(r => inFy(r, fy)).sort((a, b) => String(b.submitted_on).localeCompare(String(a.submitted_on)) || String(a.permit_no).localeCompare(String(b.permit_no))); },
+  async permits(fy) { await wait(120); demoNeed(2); return DEMO_ROWS.filter(r => inFy(r, fy)).map(r => { const o = demoOv[dKey(r)]; return o ? { ...r, overridden: true, override_reason: o.reason, override_by: o.by, override_at: o.at } : r; }).sort((a, b) => String(b.submitted_on).localeCompare(String(a.submitted_on)) || String(a.permit_no).localeCompare(String(b.permit_no))); },
   async cict(fy, m, paid) {
     await wait(120);
     let from, to;
@@ -528,9 +570,41 @@ const demoApi = {
     const bm = {}; rows.forEach(r => { const k = r.submitted_on.slice(0, 7); (bm[k] = bm[k] || { month: k, count: 0, cents: 0 }); bm[k].count++; bm[k].cents += cents(r.cict_fee); });
     return { from, to, total: sumC(rows, r => r.cict_fee), paid_total: sumC(rows.filter(r => r.paid), r => r.cict_fee), count: rows.length,
       by_source: SOURCES.map(s => { const rs = rows.filter(r => r.source === s.key); return { source: s.key, label: s.label, count: rs.length, cict: sumC(rs, r => r.cict_fee) }; }),
-      by_month: Object.values(bm).sort((a, b) => a.month.localeCompare(b.month)).map(x => ({ month: x.month, count: x.count, cict: x.cents / 100 })), rows };
+      by_month: Object.values(bm).sort((a, b) => a.month.localeCompare(b.month)).map(x => ({ month: x.month, count: x.count, cict: x.cents / 100 })), rows: demoMe().role === 'viewer' ? [] : rows };
   },
-  async saveSource() { return { ok: false, error: 'Demo mode' }; }, async sync() { return {}; },
+  async saveSource() { demoNeed(3); return { ok: false, error: 'Demo mode' }; }, async sync() { demoNeed(3); return {}; },
+  async override(items, action, pw, reason) {
+    demoNeed(3); const me = demoMe();
+    if (!['set', 'clear'].includes(action)) return { ok: false, error: 'Unknown action.' };
+    if (!items || !items.length) return { ok: false, error: 'Select at least one permit first.' };
+    if (pw !== me.pw) return { ok: false, error: 'Your password was not correct, so nothing was changed.' };
+    let n = 0;
+    items.forEach(it => { const k = [it.source, it.permit_no || '', it.submitted_on || ''].join('|'); if (!DEMO_ROWS.some(r => dKey(r) === k) || !it.permit_no) return; if (action === 'set') demoOv[k] = { reason: String(reason || '').trim() || null, by: me.username, at: new Date().toISOString() }; else delete demoOv[k]; n++; });
+    return { ok: true, count: n };
+  },
+  async users() { demoNeed(3); return demoUsers.map(({ pw, ...u }) => u).sort((a, b) => a.username.localeCompare(b.username)); },
+  async userAdd(f) {
+    demoNeed(3); const un = String(f.username || '').trim().toLowerCase();
+    if (!/^[a-z0-9._@+-]{3,64}$/.test(un)) return { ok: false, error: 'Username must be 3-64 characters: letters, numbers, and . _ @ + - only.' };
+    if (!ROLES.some(r => r.key === f.role)) return { ok: false, error: 'Choose an access level.' };
+    if (String(f.password || '').length < 10) return { ok: false, error: 'Password must be at least 10 characters.' };
+    if (demoUsers.some(x => x.username === un)) return { ok: false, error: 'That username is already taken.' };
+    demoUsers.push({ id: 'u' + Date.now() + demoUsers.length, username: un, full_name: String(f.full_name || '').trim() || null, role: f.role, active: true, created_at: new Date().toISOString(), last_login_at: null, pw: f.password });
+    return { ok: true };
+  },
+  async userUpdate(id, name, role, active) {
+    demoNeed(3); if (id === demoMe().id && (role !== 'admin' || !active)) return { ok: false, error: 'You cannot lower your own access or deactivate yourself. Ask another administrator.' };
+    const x = demoUsers.find(z => z.id === id); if (!x) return { ok: false, error: 'User not found.' };
+    x.full_name = String(name || '').trim() || null; x.role = role; x.active = !!active; return { ok: true };
+  },
+  async userReset(id, pw) {
+    demoNeed(3); if (String(pw || '').length < 10) return { ok: false, error: 'Password must be at least 10 characters.' };
+    const x = demoUsers.find(z => z.id === id); if (!x) return { ok: false, error: 'User not found.' }; x.pw = pw; return { ok: true };
+  },
+  async userDelete(id) {
+    demoNeed(3); if (id === demoMe().id) return { ok: false, error: 'You cannot delete your own login.' };
+    const i = demoUsers.findIndex(z => z.id === id); if (i < 0) return { ok: false, error: 'User not found.' }; demoUsers.splice(i, 1); return { ok: true };
+  },
 };
 const api = DEMO ? demoApi : realApi;
 
@@ -538,13 +612,14 @@ const api = DEMO ? demoApi : realApi;
    STATE + VIEWS
    ==================================================================== */
 const S = {
-  view: 'public', tab: 'overview', token: null, user: null, meta: null, busy: false,
+  view: 'public', tab: 'overview', token: null, user: null, role: null, meta: null, busy: false,
   pub: { form: { type: '', date: '', name: '', addr: '' }, results: null, error: '', invalid: [], loading: false },
   login: { error: '', loading: false },
-  ov: { fy: null, summary: null, permits: null, filter: '', loading: false },
+  ov: { fy: null, summary: null, permits: null, filter: '', loading: false, sel: {}, confirm: null, busy: false },
   cc: { fy: null, month: 'all', data: null, loading: false },
   cr: { fy: null, month: 'all', paidOnly: false, data: null, loading: false },
   set: { busy: null },
+  users: { list: null, reset: null, del: null },
 };
 
 const header = (title, right = '') => `<header class="top"><div class="titleblock"><div class="city">CITY OF ARAB, ALABAMA</div><h1>${title}</h1></div>${right}</header>`;
@@ -556,7 +631,7 @@ const monthOptions = (fy, sel) => `<option value="all"${sel === 'all' ? ' select
 function trackerHTML(p) {
   const n = p.inspections ? Object.keys(p.inspections).length : 0;
   const steps = [{ t: 'Submitted', done: true, cap: 'Received ' + fmtDate(p.submitted_on) }];
-  if (p.has_inspections) steps.push({ t: 'Inspection', done: !!p.inspection_started, cap: p.inspection_started ? `${n} inspection${n === 1 ? '' : 's'} recorded` : 'Not started yet' });
+  if (p.has_inspections) steps.push({ t: 'Inspection', done: !!p.inspection_started, cap: p.inspection_started ? (n ? `${n} inspection${n === 1 ? '' : 's'} recorded` : 'Inspections complete') : 'Not started yet' });
   steps.push({ t: 'Payment received', done: !!p.paid, cap: p.paid ? 'Payment received' : 'Not received yet' });
   steps.push({ t: 'Complete & issued', done: !!p.complete, cap: p.complete ? 'Permit issued' : (p.coo_given ? 'Awaiting payment' : p.paid ? 'Awaiting Certificate of Occupancy' : 'Not issued yet') });
   const cur = steps.findIndex(s => !s.done), pct = Math.round(steps.filter(s => s.done).length / steps.length * 100);
@@ -605,30 +680,53 @@ function loginView() {
 
 /* ---------- admin ---------- */
 function adminShell(inner) {
-  const tabs = [['overview', 'Overview'], ['cict', 'CICT Report'], ['settings', 'Sheets & Sync'], ['account', 'Account']];
-  return `${header('Permit Administration', `<div class="who">${esc(S.user || '')}<button class="btn small" data-act="logout" type="button">Log out</button></div>`)}
+  const tabs = [['overview', 'Overview'], ['cict', 'CICT Report'], ...(isAdmin() ? [['users', 'Users'], ['settings', 'Sheets & Sync']] : []), ['account', 'Account']];
+  return `${header('Permit Administration', `<div class="who">${esc(S.user || '')} <span class="pill r-${esc(S.role || 'viewer')}">${esc(roleLabel(S.role))}</span><button class="btn small" data-act="logout" type="button">Log out</button></div>`)}
     <nav class="tabs">${tabs.map(([k, l]) => `<button data-act="tab" data-tab="${k}" class="${S.tab === k ? 'active' : ''}" type="button">${l}</button>`).join('')}</nav>
     <main>${inner}</main>`;
 }
 function exportBtns(act, enabled) {
   return `<div class="btnrow">${[['xlsx', 'Excel'], ['pdf', 'PDF'], ['csv', 'CSV']].map(([f, l]) => `<button class="btn${f === 'xlsx' ? ' solid' : ''}" data-act="${act}" data-fmt="${f}" type="button"${enabled ? '' : ' disabled'}>⬇ ${l}</button>`).join('')}</div>`;
 }
+const ovKey = r => [r.source, r.permit_no || '', r.submitted_on || ''].join('|');
+function ovRows() {
+  const o = S.ov, q = o.filter.trim().toLowerCase();
+  const rows = q ? (o.permits || []).filter(r => [r.permit_no, r.applicant, r.address, r.label].join(' ').toLowerCase().includes(q)) : (o.permits || []);
+  return { rows, shown: rows.slice(0, 100) };
+}
 function permitTableHTML() {
   const o = S.ov; if (!o.permits) return '<div class="spinner"></div>';
-  const q = o.filter.trim().toLowerCase();
-  const rows = q ? o.permits.filter(r => [r.permit_no, r.applicant, r.address, r.label].join(' ').toLowerCase().includes(q)) : o.permits;
+  const { rows, shown } = ovRows(); const adm = isAdmin();
   if (!rows.length) return '<div class="empty">No permits match.</div>';
-  const shown = rows.slice(0, 100);
-  return `<div class="table-wrap"><table class="admin-table"><thead><tr><th>Permit #</th><th>Type</th><th>Submitted</th><th>Applicant</th><th>Address</th><th class="num">Permit fee</th><th class="num">CICT</th><th>Stage</th></tr></thead><tbody>
-    ${shown.map(r => `<tr><td>${esc(r.permit_no || '—')}</td><td>${esc(r.label)}</td><td>${fmtDate(r.submitted_on)}</td><td>${esc(r.applicant || '')}</td><td>${esc(r.address || '')}</td><td class="num">${money(r.permit_fee)}</td><td class="num">${money(r.cict_fee)}</td><td><span class="pill s-${stageOf(r)}">${stageLabel(r)}</span></td></tr>`).join('')}
+  const selectable = shown.filter(r => r.permit_no), allOn = selectable.length > 0 && selectable.every(r => o.sel[ovKey(r)]);
+  return `<div class="table-wrap"><table class="admin-table"><thead><tr>${adm ? `<th class="chk"><input type="checkbox" data-selall="1" aria-label="Select all shown"${allOn ? ' checked' : ''}></th>` : ''}<th>Permit #</th><th>Type</th><th>Submitted</th><th>Applicant</th><th>Address</th><th class="num">Permit fee</th><th class="num">CICT</th><th>Stage</th></tr></thead><tbody>
+    ${shown.map(r => `<tr>${adm ? `<td class="chk"><input type="checkbox" data-sel="${esc(ovKey(r))}"${o.sel[ovKey(r)] ? ' checked' : ''}${r.permit_no ? '' : ' disabled title="No permit number"'} aria-label="Select permit ${esc(r.permit_no || '')}"></td>` : ''}<td>${esc(r.permit_no || '—')}</td><td>${esc(r.label)}</td><td>${fmtDate(r.submitted_on)}</td><td>${esc(r.applicant || '')}</td><td>${esc(r.address || '')}</td><td class="num">${money(r.permit_fee)}</td><td class="num">${money(r.cict_fee)}</td><td><span class="pill ${r.overridden && !r.complete ? 's-ovr' : 's-' + stageOf(r)}"${r.overridden ? ` title="${esc('Override by ' + (r.override_by || '') + (r.override_reason ? ': ' + r.override_reason : ''))}"` : ''}>${stageLabel(r)}</span></td></tr>`).join('')}
   </tbody></table></div><div class="hint" style="margin-top:8px">${rows.length > shown.length ? `Showing the first ${shown.length} of ${rows.length} permits — export to get the full list.` : `${rows.length} permit${rows.length === 1 ? '' : 's'}.`}</div>`;
+}
+function selBarHTML() {
+  if (!isAdmin()) return '';
+  const o = S.ov, n = Object.keys(o.sel).length;
+  if (!n) return '<div class="hint" style="margin:10px 0 0">Administrators: tick permits in the table to mark them complete (an override). You will be asked for your password.</div>';
+  const picked = (o.permits || []).filter(r => o.sel[ovKey(r)]), nOv = picked.filter(r => r.overridden).length;
+  if (!o.confirm) return `<div class="selbar"><b>${n} selected</b><button class="btn small solid" data-act="ov-start-set" type="button">Mark complete…</button>${nOv ? `<button class="btn small" data-act="ov-start-clear" type="button">Remove override (${nOv})</button>` : ''}<button class="link" data-act="ov-clear-sel" type="button">Clear selection</button></div>`;
+  const setting = o.confirm === 'set';
+  return `<div class="selbar confirm"><div class="section-title" style="font-size:15px">${setting ? `Mark ${n} permit${n === 1 ? '' : 's'} complete?` : `Remove the override from ${n} permit${n === 1 ? '' : 's'}?`}</div>
+    <p class="section-sub">${setting ? 'Every step will show as complete when the applicant looks the permit up. The sheet data and the fee totals are not changed, and this is recorded in a log.' : 'These permits go back to showing whatever the sheet says.'}</p>
+    <div class="row2"><div class="field"><label for="ov_reason">Reason (optional, kept in the log)</label><input id="ov_reason" maxlength="300" autocomplete="off"></div>
+      <div class="field"><label for="ov_pw">Your password <span class="req">*</span></label><input id="ov_pw" type="password" autocomplete="current-password"></div></div>
+    <div class="btnrow"><button class="btn solid" data-act="ov-confirm" type="button"${o.busy ? ' disabled' : ''}>${o.busy ? 'Checking…' : setting ? 'Approve and mark complete' : 'Remove override'}</button><button class="btn" data-act="ov-cancel" type="button">Cancel</button></div></div>`;
+}
+function refreshOv(tableToo) {
+  const b = document.getElementById('selBar'); if (b) b.innerHTML = selBarHTML();
+  if (tableToo) { const t = document.getElementById('permitTable'); if (t) t.innerHTML = permitTableHTML(); }
+  else { const a = document.querySelector('[data-selall]'); if (a) { const s = ovRows().shown.filter(r => r.permit_no); a.checked = s.length > 0 && s.every(r => S.ov.sel[ovKey(r)]); } }
 }
 function overviewView() {
   const o = S.ov, sm = o.summary;
   const stat = (i, s) => { const x = sm && sm[s.key]; return `<div class="stat ${['', 'b2', 'b3'][i]}"><div class="k">${s.key === 'sign' ? 'Sign permit fees' : 'Building permit fees — ' + (s.key === 'building' ? 'Contractor/Owner' : 'Sub Trade')}</div>
     <div class="amt">${x ? money(x.fees) : '…'}</div><div class="sub">${x ? `${x.count} permit${x.count === 1 ? '' : 's'} · ${money(x.fees_paid)} paid · ${money(x.fees - x.fees_paid)} unpaid` : ''}</div></div>`; };
   const c = S.cc, cd = c.data;
-  return `<div class="toolbar"><div class="field"><label for="ov_fy">Fiscal year</label><select id="ov_fy" data-bind="ov.fy">${fyOptions(o.fy, true)}</select></div>${exportBtns('ov-export', !!sm && !!o.permits)}</div>
+  return `<div class="toolbar"><div class="field"><label for="ov_fy">Fiscal year</label><select id="ov_fy" data-bind="ov.fy">${fyOptions(o.fy, true)}</select></div>${canDetail() ? exportBtns('ov-export', !!sm && !!o.permits) : ''}</div>
     ${S.meta && S.meta.undated ? `<div class="banner caution">${S.meta.undated} permit row${S.meta.undated === 1 ? ' has' : 's have'} no readable submission date. They count in “Overall” but not in any fiscal year.</div>` : ''}
     <div class="stat-grid">${SOURCES.map((s, i) => stat(i, s)).join('')}</div>
     <div class="card cict-card">
@@ -637,11 +735,11 @@ function overviewView() {
         <div class="field"><label for="cc_m">Month</label><select id="cc_m" data-bind="cc.month">${monthOptions(c.fy, c.month)}</select></div></div></div>
       <div class="center"><div class="k" style="font-size:12.5px;font-weight:600;color:var(--ink-soft)">${c.month === 'all' ? esc(fyLabel(c.fy)) : esc(monthLabel(c.fy, +c.month))}</div>
         <div class="amt">${cd ? money(cd.total) : '…'}</div><div class="hint">${cd ? `${cd.count} permit${cd.count === 1 ? '' : 's'} with a CICT fee` : ''}</div>
-        <button class="link" data-act="open-cict" type="button">Open CICT report &amp; exports →</button></div>
+        <button class="link" data-act="open-cict" type="button">Open CICT report${canDetail() ? ' &amp; exports' : ''} →</button></div>
     </div>
-    <div class="card"><div class="toolbar" style="margin-bottom:0"><div><div class="section-title">Permits in this period</div><p class="section-sub" style="margin:0">${o.fy === 'all' ? 'All fiscal years' : esc(fyLabel(o.fy) + ' · ' + fyRangeText(o.fy))}</p></div>
+    ${!canDetail() ? '' : `<div class="card"><div class="toolbar" style="margin-bottom:0"><div><div class="section-title">Permits in this period</div><p class="section-sub" style="margin:0">${o.fy === 'all' ? 'All fiscal years' : esc(fyLabel(o.fy) + ' · ' + fyRangeText(o.fy))}</p></div>
       <div class="field" style="min-width:240px"><label for="ov_q">Filter</label><input id="ov_q" data-bind="ov.filter" placeholder="Permit #, name, or address" value="${esc(o.filter)}"></div></div>
-      <div id="permitTable">${permitTableHTML()}</div></div>`;
+      <div id="selBar">${selBarHTML()}</div><div id="permitTable">${permitTableHTML()}</div></div>`}`;
 }
 function cictTabView() {
   const c = S.cr, d = c.data;
@@ -651,15 +749,15 @@ function cictTabView() {
       <div class="hint">${d.count} permit${d.count === 1 ? '' : 's'} with a CICT fee · submitted ${fmtDate(d.from)} – ${fmtDate(d.to)} · ${esc(crBasis(c))}${c.paidOnly ? '' : ` · ${money(d.paid_total)} of this is on paid permits`}</div></div>
     <div class="row2" style="gap:24px"><div><div class="section-title" style="font-size:14.5px">By permit type</div>${d.by_source.map(s => `<div class="kv"><span class="k">${esc(s.label)} <span class="hint">(${s.count})</span></span><span>${money(s.cict)}</span></div>`).join('')}<div class="kv total"><span>Total</span><span>${money(d.total)}</span></div></div>
       <div>${c.month === 'all' ? `<div class="section-title" style="font-size:14.5px">By month</div>${d.by_month.length ? d.by_month.map(m => { const [y, mm] = m.month.split('-').map(Number); return `<div class="kv"><span class="k">${MONTHS[mm - 1]} ${y} <span class="hint">(${m.count})</span></span><span>${money(m.cict)}</span></div>`; }).join('') : '<div class="hint">No CICT fees in this year.</div>'}` : ''}</div></div>
-    <div class="table-wrap"><table class="admin-table"><thead><tr><th>Permit #</th><th>Type</th><th>Submitted</th><th>Applicant</th><th>Address</th><th class="num">Permit fee</th><th class="num">CICT fee</th><th>Paid</th></tr></thead><tbody>
+    ${!canDetail() ? '' : `<div class="table-wrap"><table class="admin-table"><thead><tr><th>Permit #</th><th>Type</th><th>Submitted</th><th>Applicant</th><th>Address</th><th class="num">Permit fee</th><th class="num">CICT fee</th><th>Paid</th></tr></thead><tbody>
       ${d.rows.map(r => `<tr><td>${esc(r.permit_no || '—')}</td><td>${esc(r.label)}</td><td>${fmtDate(r.submitted_on)}</td><td>${esc(r.applicant || '')}</td><td>${esc(r.address || '')}</td><td class="num">${money(r.permit_fee)}</td><td class="num">${money(r.cict_fee)}</td><td>${r.paid ? 'Yes' : 'No'}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No permits with a CICT fee in this period.</td></tr>'}
-      ${d.rows.length ? `<tr class="tot"><td colspan="5">Total</td><td class="num">${money(sumC(d.rows, r => r.permit_fee))}</td><td class="num">${money(sumC(d.rows, r => r.cict_fee))}</td><td></td></tr>` : ''}</tbody></table></div>`;
-  return `<div class="card"><div class="section-title">CICT fee report</div><p class="section-sub">Choose the period, then export the results for the monthly report.</p>
+      ${d.rows.length ? `<tr class="tot"><td colspan="5">Total</td><td class="num">${money(sumC(d.rows, r => r.permit_fee))}</td><td class="num">${money(sumC(d.rows, r => r.cict_fee))}</td><td></td></tr>` : ''}</tbody></table></div>`}`;
+  return `<div class="card"><div class="section-title">CICT fee report</div><p class="section-sub">${canDetail() ? 'Choose the period, then export the results for the monthly report.' : 'Choose the period to see the totals.'}</p>
       <div class="row2" style="grid-template-columns:1fr 1fr 1fr">
         <div class="field"><label for="cr_fy">Fiscal year</label><select id="cr_fy" data-bind="cr.fy">${fyOptions(c.fy, false)}</select></div>
         <div class="field"><label for="cr_m">Month</label><select id="cr_m" data-bind="cr.month">${monthOptions(c.fy, c.month)}</select></div>
         <div class="field"><label for="cr_p">Count</label><select id="cr_p" data-bind="cr.paidOnly"><option value="0"${c.paidOnly ? '' : ' selected'}>All submitted permits</option><option value="1"${c.paidOnly ? ' selected' : ''}>Paid permits only</option></select></div></div></div>
-    <div class="card export-card"><div class="toolbar" style="margin:0"><div><div class="section-title">Export CICT report</div><p class="section-sub" style="margin:0">Exports exactly what is selected above: <b>${esc(crTitle(c))}</b>.</p></div>${exportBtns('cict-export', !!d && !c.loading)}</div></div>
+    ${!canDetail() ? '' : `<div class="card export-card"><div class="toolbar" style="margin:0"><div><div class="section-title">Export CICT report</div><p class="section-sub" style="margin:0">Exports exactly what is selected above: <b>${esc(crTitle(c))}</b>.</p></div>${exportBtns('cict-export', !!d && !c.loading)}</div></div>`}
     <div class="card">${result}</div>`;
 }
 function fmtWhen(iso) { if (!iso) return 'never'; return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }); }
@@ -674,14 +772,39 @@ function settingsView() {
       <div class="btnrow"><button class="btn" data-act="save-src" data-src="${s.source}" type="button">Save link</button><button class="btn solid" data-act="save-sync" data-src="${s.source}" type="button"${S.set.busy ? ' disabled' : ''}>${S.set.busy === s.source ? 'Syncing…' : 'Save & sync now'}</button></div>
       <details><summary>Column mapping (advanced)</summary><p class="hint">Which sheet column headers feed each field. If a header appears more than once in the sheet, all copies are checked and the first filled-in one is used.</p><textarea id="map_${s.source}" spellcheck="false">${esc(JSON.stringify(s.mapping, null, 2))}</textarea></details></div>`).join('')}`;
 }
+function usersView() {
+  const u = S.users;
+  const rowHTML = x => {
+    const me = x.username === S.user;
+    const acts = u.reset === x.id
+      ? `<input id="rp_${x.id}" type="password" placeholder="New password (10+ characters)" autocomplete="new-password" aria-label="New password for ${esc(x.username)}"><button class="btn small solid" data-act="user-reset-save" data-id="${x.id}" type="button">Save password</button><button class="btn small" data-act="user-reset-cancel" type="button">Cancel</button>`
+      : u.del === x.id
+        ? `<span class="hint" style="margin:0">Delete ${esc(x.username)} permanently?</span><button class="btn small solid" style="background:var(--danger);border-color:var(--danger)" data-act="user-del-yes" data-id="${x.id}" type="button">Yes, delete</button><button class="btn small" data-act="user-del-no" type="button">Cancel</button>`
+        : `<button class="btn small" data-act="user-reset" data-id="${x.id}" type="button">Reset password</button>${me ? '' : `<button class="btn small" data-act="user-toggle" data-id="${x.id}" type="button">${x.active ? 'Deactivate' : 'Activate'}</button><button class="btn small" data-act="user-del" data-id="${x.id}" type="button">Delete</button>`}`;
+    return `<div class="urow${x.active ? '' : ' off'}" data-uid="${x.id}"><div class="top2"><div><div class="nm">${esc(x.full_name || x.username)}${me ? ' <span class="hint" style="display:inline">(you)</span>' : ''}</div><div class="un">${esc(x.username)} · last sign-in ${esc(fmtWhen(x.last_login_at))}</div></div>
+      <div class="btnrow" style="align-items:center">${x.active ? '' : '<span class="pill s-off">Deactivated</span>'}<select data-urole="${x.id}" aria-label="Access level for ${esc(x.username)}"${me ? ' disabled' : ''}>${ROLES.map(r => `<option value="${r.key}"${x.role === r.key ? ' selected' : ''}>${r.label}</option>`).join('')}</select></div></div>
+      <div class="acts">${acts}</div></div>`;
+  };
+  return `<form class="card slip" id="userAddForm" autocomplete="off"><div class="section-title">Add a user</div>
+      <p class="section-sub">Choose their username, access level and a temporary password, then give those to them. They can change the password on the Account tab.</p>
+      <div class="row2"><div class="field"><label for="u_name">Username <span class="req">*</span></label><input id="u_name" autocomplete="off" autocapitalize="none" required></div>
+        <div class="field"><label for="u_full">Full name</label><input id="u_full" autocomplete="off"></div></div>
+      <div class="row2"><div class="field"><label for="u_role">Access level <span class="req">*</span></label><select id="u_role">${ROLES.map(r => `<option value="${r.key}"${r.key === 'staff' ? ' selected' : ''}>${r.label}</option>`).join('')}</select></div>
+        <div class="field"><label for="u_pw">Temporary password <span class="req">*</span></label><input id="u_pw" type="password" autocomplete="new-password" required><div class="hint">At least 10 characters.</div></div></div>
+      <ul class="rolekey">${ROLES.map(r => `<li><b>${r.label}</b> — ${esc(r.desc)}</li>`).join('')}</ul>
+      <button class="primary" type="submit" style="width:auto;padding:11px 22px">Add user</button></form>
+    <div class="card"><div class="section-title">People with access</div><p class="section-sub">Changing an access level takes effect immediately. Deactivating someone signs them out and blocks their login without deleting them.</p>
+      ${u.list ? (u.list.map(rowHTML).join('') || '<div class="empty">No users yet.</div>') : '<div class="spinner"></div>'}</div>`;
+}
 function accountView() {
-  return `<form class="card slip" id="pwForm" style="max-width:460px"><div class="section-title">Change password</div><p class="section-sub">At least 10 characters.</p>
+  return `<div class="card"><div class="section-title">Your account</div><p class="section-sub" style="margin:0">Signed in as <b>${esc(S.user || '')}</b> — ${esc(roleLabel(S.role))}. ${esc((ROLES.find(r => r.key === S.role) || {}).desc || '')}</p></div>
+    <form class="card slip" id="pwForm" style="max-width:460px"><div class="section-title">Change password</div><p class="section-sub">At least 10 characters.</p>
     <div class="field"><label for="pw_o">Current password</label><input id="pw_o" type="password" autocomplete="current-password" required></div>
     <div class="field"><label for="pw_n">New password</label><input id="pw_n" type="password" autocomplete="new-password" required minlength="10"></div>
     <div class="field"><label for="pw_c">Confirm new password</label><input id="pw_c" type="password" autocomplete="new-password" required></div>
     <button class="primary" type="submit">Update password</button></form>`;
 }
-function adminView() { return adminShell(S.tab === 'overview' ? overviewView() : S.tab === 'cict' ? cictTabView() : S.tab === 'settings' ? settingsView() : accountView()); }
+function adminView() { const t = (S.tab === 'users' || S.tab === 'settings') && !isAdmin() ? 'overview' : S.tab; return adminShell(t === 'overview' ? overviewView() : t === 'cict' ? cictTabView() : t === 'settings' ? settingsView() : t === 'users' ? usersView() : accountView()); }
 
 function render() {
   $app.className = S.view === 'admin' ? 'wide' : '';
@@ -691,11 +814,11 @@ function render() {
 /* ---------- loaders ---------- */
 async function guard(fn) {
   try { return await fn(); }
-  catch (e) { if (e.unauthorized) { await doLogout(true); toast('Your session expired. Please sign in again.', true); } else toast(e.message || 'Something went wrong.', true); return null; }
+  catch (e) { if (e.unauthorized) { await doLogout(true); toast('Your session expired. Please sign in again.', true); } else if (e.forbidden) toast('Your access level does not allow that.', true); else toast(e.message || 'Something went wrong.', true); return null; }
 }
 async function loadOverview() {
-  const o = S.ov; const fy = o.fy === 'all' ? null : +o.fy; o.summary = null; o.permits = null; render();
-  const [sm, pr] = await guard(() => Promise.all([api.summary(fy), api.permits(fy)])) || [null, null];
+  const o = S.ov; const fy = o.fy === 'all' ? null : +o.fy; o.summary = null; o.permits = null; o.sel = {}; o.confirm = null; o.busy = false; render();
+  const [sm, pr] = await guard(() => Promise.all([api.summary(fy), canDetail() ? api.permits(fy) : Promise.resolve([])])) || [null, null];
   if (S.ov.fy !== o.fy) return; o.summary = sm; o.permits = pr || []; if (S.view === 'admin' && S.tab === 'overview') render();
 }
 async function loadCC() {
@@ -708,10 +831,11 @@ async function loadCR() {
   const d = await guard(() => api.cict(+c.fy, c.month === 'all' ? null : +c.month, c.paidOnly)); c.data = d; c.loading = false;
   if (S.view === 'admin' && S.tab === 'cict') render();
 }
+async function loadUsers() { const l = await guard(() => api.users()); if (l) { S.users.list = l; S.users.reset = null; S.users.del = null; if (S.view === 'admin' && S.tab === 'users') render(); } }
 async function loadMeta() { const m = await guard(() => api.meta()); if (m) { S.meta = m; render(); } return m; }
 async function enterAdmin() {
   S.view = 'admin'; S.tab = 'overview';
-  const m = await guard(() => api.meta()); if (!m) return; S.meta = m;
+  const m = await guard(() => api.meta()); if (!m) return; S.meta = m; S.role = m.role || S.role;
   const cur = fyOf(todayISO()), pd = defaultPeriod();
   S.ov.fy = m.years.includes(cur) ? cur : m.years[0];
   const fy = m.years.includes(pd.fy) ? pd.fy : m.years[0];
@@ -720,7 +844,7 @@ async function enterAdmin() {
 }
 async function doLogout(silent) {
   if (!silent) { try { await api.logout(); } catch (e) { /* ignore */ } }
-  S.token = null; S.user = null; S.meta = null; S.view = 'public'; try { sessionStorage.removeItem('pm_token'); sessionStorage.removeItem('pm_user'); } catch (e) { /* ignore */ }
+  S.token = null; S.user = null; S.role = null; S.meta = null; S.users = { list: null, reset: null, del: null }; S.ov.filter = ''; S.ov.sel = {}; S.ov.confirm = null; S.view = 'public'; try { sessionStorage.removeItem('pm_token'); sessionStorage.removeItem('pm_user'); } catch (e) { /* ignore */ }
   history.replaceState(null, '', location.pathname + location.search); render();
 }
 
@@ -731,8 +855,17 @@ document.addEventListener('input', e => {
   if (t.dataset.form) { S.pub.form[t.dataset.form] = t.value; if (S.pub.invalid.includes(t.dataset.form)) { S.pub.invalid = S.pub.invalid.filter(k => k !== t.dataset.form); t.classList.remove('invalid'); } }
   if (t.dataset.bind === 'ov.filter') { S.ov.filter = t.value; document.getElementById('permitTable').innerHTML = permitTableHTML(); }
 });
-document.addEventListener('change', e => {
-  const t = e.target, b = t.dataset.bind; if (!b) return;
+document.addEventListener('change', async e => {
+  const t = e.target;
+  if (t.dataset.urole) {
+    const x = (S.users.list || []).find(z => z.id === t.dataset.urole); if (!x) return;
+    const r = await guard(() => api.userUpdate(x.id, x.full_name, t.value, x.active));
+    if (r && r.ok) toast('Access level updated.'); else if (r) toast(r.error || 'Could not update.', true);
+    return loadUsers();
+  }
+  if (t.dataset.sel !== undefined) { if (t.checked) S.ov.sel[t.dataset.sel] = true; else delete S.ov.sel[t.dataset.sel]; S.ov.confirm = null; return refreshOv(false); }
+  if (t.dataset.selall !== undefined) { ovRows().shown.filter(r => r.permit_no).forEach(r => { if (t.checked) S.ov.sel[ovKey(r)] = true; else delete S.ov.sel[ovKey(r)]; }); S.ov.confirm = null; return refreshOv(true); }
+  const b = t.dataset.bind; if (!b) return;
   if (b === 'ov.fy') { S.ov.fy = t.value === 'all' ? 'all' : +t.value; loadOverview(); }
   else if (b === 'cc.fy') { S.cc.fy = +t.value; S.cc.month = 'all'; loadCC(); }
   else if (b === 'cc.month') { S.cc.month = t.value; loadCC(); }
@@ -758,10 +891,15 @@ document.addEventListener('submit', async e => {
     S.login.loading = true; S.login.error = ''; render();
     try {
       const r = await api.login(u, p);
-      if (r && r.ok) { S.token = r.token; S.user = r.username; try { sessionStorage.setItem('pm_token', r.token); sessionStorage.setItem('pm_user', r.username); } catch (x) { /* ignore */ } S.login.loading = false; return enterAdmin(); }
+      if (r && r.ok) { S.token = r.token; S.user = r.username; S.role = r.role || null; try { sessionStorage.setItem('pm_token', r.token); sessionStorage.setItem('pm_user', r.username); } catch (x) { /* ignore */ } S.login.loading = false; return enterAdmin(); }
       S.login.error = r && r.error === 'locked' ? 'Too many failed attempts. Please wait 15 minutes and try again.' : 'Incorrect username or password.';
     } catch (err) { S.login.error = 'Could not reach the server. Please try again.'; }
     S.login.loading = false; render();
+  } else if (id === 'userAddForm') {
+    const g = k => document.getElementById(k).value;
+    const r = await guard(() => api.userAdd({ username: g('u_name'), full_name: g('u_full'), role: g('u_role'), password: g('u_pw') })); if (!r) return;
+    if (!r.ok) return toast(r.error || 'Could not add the user.', true);
+    toast('User added.'); e.target.reset(); await loadUsers();
   } else if (id === 'pwForm') {
     const o = document.getElementById('pw_o').value, n = document.getElementById('pw_n').value, c = document.getElementById('pw_c').value;
     if (n !== c) return toast('The new passwords do not match.', true);
@@ -775,8 +913,40 @@ document.addEventListener('click', async e => {
   else if (act === 'goto-public') { S.view = 'public'; history.replaceState(null, '', location.pathname + location.search); render(); }
   else if (act === 'demo-fill') { S.pub.form = { type: 'building', date: '2025-09-30', name: "O'Neil Builders", addr: '431 oak' }; S.pub.invalid = []; S.pub.error = ''; render(); }
   else if (act === 'logout') doLogout();
-  else if (act === 'tab') { S.tab = el.dataset.tab; render(); if (S.tab === 'cict') { if (!S.cr.data && !S.cr.loading) loadCR(); } else if (S.tab === 'settings') loadMeta(); else if (S.tab === 'overview') { loadOverview(); loadCC(); } }
+  else if (act === 'tab') { S.tab = el.dataset.tab; render(); if (S.tab === 'cict') { if (!S.cr.data && !S.cr.loading) loadCR(); } else if (S.tab === 'settings') loadMeta(); else if (S.tab === 'users') loadUsers(); else if (S.tab === 'overview') { loadOverview(); loadCC(); } }
   else if (act === 'open-cict') { S.cr.fy = S.cc.fy; S.cr.month = S.cc.month; S.tab = 'cict'; loadCR(); }
+  else if (act === 'user-reset') { S.users.reset = el.dataset.id; S.users.del = null; render(); const i = document.getElementById('rp_' + el.dataset.id); if (i) i.focus(); }
+  else if (act === 'user-reset-cancel') { S.users.reset = null; render(); }
+  else if (act === 'user-reset-save') {
+    const pw = document.getElementById('rp_' + el.dataset.id).value;
+    const r = await guard(() => api.userReset(el.dataset.id, pw)); if (!r) return;
+    if (!r.ok) return toast(r.error || 'Could not reset the password.', true);
+    toast('Password changed. Give them the new password.'); S.users.reset = null; render();
+  }
+  else if (act === 'user-toggle') {
+    const x = (S.users.list || []).find(z => z.id === el.dataset.id); if (!x) return;
+    const r = await guard(() => api.userUpdate(x.id, x.full_name, x.role, !x.active)); if (r && r.ok) toast(x.active ? 'User deactivated.' : 'User activated.'); else if (r) toast(r.error || 'Could not update.', true);
+    await loadUsers();
+  }
+  else if (act === 'user-del') { S.users.del = el.dataset.id; S.users.reset = null; render(); }
+  else if (act === 'user-del-no') { S.users.del = null; render(); }
+  else if (act === 'user-del-yes') {
+    const r = await guard(() => api.userDelete(el.dataset.id)); if (r && r.ok) toast('User deleted.'); else if (r) toast(r.error || 'Could not delete.', true);
+    await loadUsers();
+  }
+  else if (act === 'ov-start-set' || act === 'ov-start-clear') { S.ov.confirm = act === 'ov-start-set' ? 'set' : 'clear'; refreshOv(false); const i = document.getElementById('ov_pw'); if (i) i.focus(); }
+  else if (act === 'ov-cancel') { S.ov.confirm = null; refreshOv(false); }
+  else if (act === 'ov-clear-sel') { S.ov.sel = {}; S.ov.confirm = null; refreshOv(true); }
+  else if (act === 'ov-confirm') {
+    const o = S.ov, pw = document.getElementById('ov_pw').value, reason = document.getElementById('ov_reason').value;
+    if (!pw) return toast('Enter your password to continue.', true);
+    const items = (o.permits || []).filter(r => o.sel[ovKey(r)] && r.permit_no).map(r => ({ source: r.source, permit_no: r.permit_no, submitted_on: r.submitted_on }));
+    const action = o.confirm; o.busy = true; refreshOv(false);
+    const r = await guard(() => api.override(items, action, pw, reason)); o.busy = false;
+    if (r && r.ok) { toast(action === 'set' ? `${r.count} permit${r.count === 1 ? '' : 's'} marked complete.` : `Override removed from ${r.count} permit${r.count === 1 ? '' : 's'}.`); return loadOverview(); }
+    if (r) toast(r.error || 'Could not save.', true);
+    refreshOv(false); const pi = document.getElementById('ov_pw'); if (pi) pi.focus();
+  }
   else if (act === 'ov-export') exportOverview(el.dataset.fmt);
   else if (act === 'cict-export') exportCict(el.dataset.fmt);
   else if (act === 'save-src' || act === 'save-sync') {
