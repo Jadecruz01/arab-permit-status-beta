@@ -18,12 +18,20 @@ Public permit status lookup, plus a staff dashboard for fee totals and the month
 
 **Overriding a permit's status**
 
-An administrator can tick permits in the Overview table and choose **Mark complete…**. After re-entering their own password (and, optionally, a reason), every step shows as complete when the applicant looks the permit up. The Google Sheet data and the fee totals are not changed, the override survives the hourly sync, and every override and removal is recorded with who did it and when. Use **Remove override** to go back to what the sheet says.
+An administrator can tick permits in the Overview table and choose **Mark complete…**. After re-entering their own password (and, optionally, a reason), every step (inspection, payment, Certificate of Occupancy, complete) shows as done when the applicant looks the permit up, and the dashboard's paid/unpaid amounts and the CICT paid-only report count the permit as paid. The fee amounts and the Google Sheet data are not changed, the dashboard notes how much of the paid total is by override, the override survives the hourly sync, and every override and removal is recorded with who did it and when. Use **Remove override** to go back to what the sheet says.
+
+**Permit PDFs**
+
+Staff and administrators can tick one or more permits in the Overview table and choose **Download permit PDF**. Each permit gets a formatted record (status tracker, summary, and every field from the sheet). Any field whose name contains "background" is left out. The full field list is stored at each sync, so permits already loaded need one more sync before their details appear.
+
+**Update notice**
+
+Each time the site is updated, a notice pops up on every visit and refresh. Closing it shrinks it into a banner at the top that goes away by itself after about a minute. When you change `index.html`, edit the `RELEASE` block (version, date, notes) so the notice describes the update.
 
 **Access levels**
 
 - Administrator — everything, plus adding and managing users and changing the Google Sheet links.
-- Staff — dashboard, permit list with names and addresses, CICT report, and Excel/PDF/CSV exports.
+- Staff — dashboard, permit list with names and addresses, permit PDFs, CICT report, and Excel/PDF/CSV exports.
 - Viewer — dashboard and CICT totals only. No names, addresses or exports.
 
 Levels are enforced in the database, not just hidden on the page. Deactivating a user signs them out immediately. Administrators cannot lower, deactivate or delete their own login, so at least one administrator always remains.
