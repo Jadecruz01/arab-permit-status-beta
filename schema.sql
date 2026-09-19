@@ -106,6 +106,23 @@ create table if not exists pm_override_log (      -- permanent audit trail: who 
   reason       text
 );
 
+-- What each non-admin role may see and do. Administrators always have everything.
+-- Only the settings you change are stored; anything missing falls back to pm_default_perms().
+create table if not exists pm_role_perms (
+  role       text primary key check (role in ('staff','viewer')),
+  perms      jsonb not null default '{}'::jsonb,
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+create table if not exists pm_role_perm_log (     -- who changed which role's permissions, and what it was before
+  id       bigserial primary key,
+  at       timestamptz not null default now(),
+  username text not null,
+  role     text not null,
+  before   jsonb,
+  after    jsonb
+);
+
 -- Lock every table: no direct access for the public key. All access goes
 -- through the SECURITY DEFINER functions below.
 alter table pm_sources        enable row level security;
@@ -115,9 +132,11 @@ alter table pm_staff_sessions enable row level security;
 alter table pm_login_attempts enable row level security;
 alter table pm_overrides      enable row level security;
 alter table pm_override_log   enable row level security;
+alter table pm_role_perms     enable row level security;
+alter table pm_role_perm_log  enable row level security;
 revoke all on pm_sources, pm_permits, pm_staff_users, pm_staff_sessions, pm_login_attempts from anon, authenticated;
-revoke all on pm_overrides, pm_override_log from anon, authenticated;
-revoke all on sequence pm_permits_id_seq, pm_login_attempts_id_seq, pm_override_log_id_seq from anon, authenticated;
+revoke all on pm_overrides, pm_override_log, pm_role_perms, pm_role_perm_log from anon, authenticated;
+revoke all on sequence pm_permits_id_seq, pm_login_attempts_id_seq, pm_override_log_id_seq, pm_role_perm_log_id_seq from anon, authenticated;
 
 -- ---------------------------------------------------------------------
 -- The three permit sheets and how to read their columns.
@@ -394,6 +413,47 @@ begin
   return u;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Role permissions.  Tabs: 'none' | 'view' | 'edit'.  Actions: true | false.
+-- ---------------------------------------------------------------------
+create or replace function pm_default_perms(p_role text) returns jsonb
+language sql immutable as $$
+  select case p_role
+    when 'admin' then '{"tabs":{"overview":"edit","cict":"edit","settings":"edit","users":"edit"},"actions":{"details":true,"export":true,"permit_pdf":true,"override":true}}'::jsonb
+    when 'staff' then '{"tabs":{"overview":"view","cict":"view","settings":"none","users":"none"},"actions":{"details":true,"export":true,"permit_pdf":true,"override":false}}'::jsonb
+    else              '{"tabs":{"overview":"view","cict":"view","settings":"none","users":"none"},"actions":{"details":false,"export":false,"permit_pdf":false,"override":false}}'::jsonb
+  end
+$$;
+
+-- Effective permissions for a user (administrators are always full access).
+create or replace function pm_perms(p_uid uuid) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare r text; d jsonb; st jsonb;
+begin
+  select role into r from pm_staff_users where id = p_uid;
+  d := pm_default_perms(coalesce(r, 'viewer'));
+  if r = 'admin' then return d; end if;
+  select perms into st from pm_role_perms where role = r;
+  st := coalesce(st, '{}'::jsonb);
+  return jsonb_build_object('tabs', (d->'tabs') || coalesce(st->'tabs', '{}'::jsonb),
+                            'actions', (d->'actions') || coalesce(st->'actions', '{}'::jsonb));
+end $$;
+
+-- Require a tab level ('view' or 'edit') and/or an action switch. Raises 'forbidden' otherwise.
+create or replace function pm_need(p_token uuid, p_tab text, p_level text, p_action text default null) returns uuid
+language plpgsql security definer set search_path = public, extensions as $$
+declare u uuid := pm_auth(p_token); pr jsonb := pm_perms(u);
+  rank jsonb := '{"none":0,"view":1,"edit":2}'::jsonb;
+begin
+  if p_tab is not null and coalesce((rank->>(pr->'tabs'->>p_tab))::int, 0) < (rank->>p_level)::int then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+  if p_action is not null and not coalesce((pr->'actions'->>p_action)::boolean, false) then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+  return u;
+end $$;
+
 -- Create / reset a staff login from the SQL Editor (also the way back in if every admin is locked out).
 drop function if exists pm_create_staff(text, text);
 create or replace function pm_create_staff(p_username text, p_password text, p_role text default 'admin') returns text
@@ -411,7 +471,8 @@ end $$;
 
 revoke all on function pm_norm(text), pm_parse_csv(text), pm_money(text), pm_date(text), pm_truthy(text),
   pm_idx(text[], jsonb), pm_val(text[], int[]), pm_fy(date), pm_ingest_csv(text, text), pm_sync_source(text),
-  pm_sync_all(), pm_auth(uuid), pm_require(uuid, int), pm_create_staff(text, text, text) from public, anon, authenticated;
+  pm_sync_all(), pm_auth(uuid), pm_require(uuid, int), pm_create_staff(text, text, text),
+  pm_default_perms(text), pm_perms(uuid), pm_need(uuid, text, text, text) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------
 -- Public function: permit status lookup.
@@ -526,25 +587,29 @@ end $$;
 -- Fiscal years present in the data + sheet status
 create or replace function pm_staff_meta(p_token uuid) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare yrs int[]; srcs jsonb; undated int; uid uuid := pm_require(p_token, 1); me pm_staff_users%rowtype;
+declare yrs int[]; srcs jsonb; undated int; uid uuid := pm_require(p_token, 1); me pm_staff_users%rowtype; pr jsonb;
 begin
   select * into me from pm_staff_users where id = uid;
+  pr := pm_perms(uid);
   select array_agg(y order by y desc) into yrs from (
     select distinct pm_fy(submitted_on) as y from pm_permits where submitted_on is not null
     union select pm_fy(current_date)
   ) t;
   select jsonb_agg(jsonb_build_object(
       'source', source, 'label', label,
-      'csv_url', case when me.role = 'admin' then coalesce(csv_url,'') else '' end,
-      'mapping', case when me.role = 'admin' then mapping else '{}'::jsonb end,
-      'last_sync_at', last_sync_at, 'last_sync_ok', last_sync_ok, 'last_sync_msg', last_sync_msg,
-      'last_sync_rows', last_sync_rows, 'last_missing', coalesce(last_missing,'{}'),
+      'csv_url', case when pr->'tabs'->>'settings' = 'edit' then coalesce(csv_url,'') else '' end,
+      'mapping', case when pr->'tabs'->>'settings' = 'edit' then mapping else '{}'::jsonb end,
+      'last_sync_at', case when pr->'tabs'->>'settings' <> 'none' then last_sync_at end,
+      'last_sync_ok', case when pr->'tabs'->>'settings' <> 'none' then last_sync_ok end,
+      'last_sync_msg', case when pr->'tabs'->>'settings' <> 'none' then last_sync_msg end,
+      'last_sync_rows', case when pr->'tabs'->>'settings' <> 'none' then last_sync_rows end,
+      'last_missing', case when pr->'tabs'->>'settings' <> 'none' then coalesce(last_missing,'{}') else '{}' end,
       'has_inspections', has_inspections
     ) order by case source when 'building' then 1 when 'subtrade' then 2 else 3 end)
   into srcs from pm_sources;
   select count(*) into undated from pm_permits where submitted_on is null;
   return jsonb_build_object('years', to_jsonb(yrs), 'sources', srcs, 'undated', undated,
-                            'role', me.role, 'username', me.username, 'full_name', me.full_name);
+                            'role', me.role, 'username', me.username, 'full_name', me.full_name, 'perms', pr);
 end $$;
 
 -- Dashboard totals (p_fy null = overall)
@@ -552,7 +617,7 @@ create or replace function pm_staff_summary(p_token uuid, p_fy int) returns json
 language plpgsql security definer set search_path = public, extensions as $$
 declare d1 date; d2 date; out jsonb;
 begin
-  perform pm_require(p_token, 1);
+  perform pm_need(p_token, 'overview', 'view');
   if p_fy is not null then d1 := make_date(p_fy - 1, 10, 1); d2 := make_date(p_fy, 9, 30); end if;
   select jsonb_object_agg(source, obj) into out from (
     select s.source, jsonb_build_object(
@@ -577,7 +642,7 @@ create or replace function pm_staff_permits(p_token uuid, p_fy int) returns json
 language plpgsql security definer set search_path = public, extensions as $$
 declare d1 date; d2 date;
 begin
-  perform pm_require(p_token, 2);
+  perform pm_need(p_token, 'overview', 'view', 'details');
   if p_fy is not null then d1 := make_date(p_fy - 1, 10, 1); d2 := make_date(p_fy, 9, 30); end if;
   return coalesce((
     select jsonb_agg(jsonb_build_object(
@@ -600,7 +665,8 @@ end $$;
 create or replace function pm_staff_permit_detail(p_token uuid, p_items jsonb) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 begin
-  perform pm_require(p_token, 2);
+  perform pm_need(p_token, null, 'view', 'details');
+  perform pm_need(p_token, null, 'view', 'permit_pdf');
   if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then return '[]'::jsonb; end if;
   if jsonb_array_length(p_items) > 200 then raise exception 'Select 200 permits or fewer at a time.'; end if;
   return coalesce((
@@ -626,9 +692,10 @@ end $$;
 
 create or replace function pm_staff_cict(p_token uuid, p_fy int, p_month int, p_paid_only boolean) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare d1 date; d2 date; y int; out jsonb; detail boolean;
+declare d1 date; d2 date; y int; out jsonb; detail boolean; uid uuid := pm_auth(p_token); pr jsonb := pm_perms(uid);
 begin
-  detail := (select role from pm_staff_users where id = pm_require(p_token, 1)) in ('admin','staff');
+  if pr->'tabs'->>'cict' = 'none' and pr->'tabs'->>'overview' = 'none' then raise exception 'forbidden' using errcode = '42501'; end if;
+  detail := coalesce((pr->'actions'->>'details')::boolean, false);
   if p_fy is null then raise exception 'fiscal year required'; end if;
   if p_month is null then
     d1 := make_date(p_fy - 1, 10, 1); d2 := make_date(p_fy, 9, 30);
@@ -667,7 +734,7 @@ end $$;
 create or replace function pm_staff_save_source(p_token uuid, p_source text, p_url text, p_mapping jsonb) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 begin
-  perform pm_require(p_token, 3);
+  perform pm_need(p_token, 'settings', 'edit');
   update pm_sources set csv_url = nullif(btrim(coalesce(p_url,'')), ''),
          mapping = coalesce(p_mapping, mapping)
    where source = p_source;
@@ -680,7 +747,7 @@ create or replace function pm_staff_sync(p_token uuid, p_source text) returns js
 language plpgsql security definer set search_path = public, extensions as $$
 declare s record; res jsonb := '{}'::jsonb;
 begin
-  perform pm_require(p_token, 3);
+  perform pm_need(p_token, 'settings', 'edit');
   for s in select source from pm_sources where (p_source is null or source = p_source)
            and nullif(btrim(coalesce(csv_url,'')),'') is not null loop
     res := res || jsonb_build_object(s.source, pm_sync_source(s.source));
@@ -689,14 +756,14 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- Manual override (admin only, and the administrator must re-enter their own password)
+-- Manual override (roles with the 'override' switch, and they must re-enter their own password)
 -- p_items: [{"source": "building", "permit_no": "B-25-001", "submitted_on": "2025-09-30"}, ...]
 -- p_action: 'set' = show every step as complete on the public lookup; 'clear' = go back to the sheet's own data.
 -- ---------------------------------------------------------------------
 create or replace function pm_staff_override(p_token uuid, p_items jsonb, p_action text, p_password text, p_reason text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 declare
-  uid uuid := pm_require(p_token, 3); u pm_staff_users%rowtype; it jsonb; rowp record; n int := 0;
+  uid uuid := pm_need(p_token, 'overview', 'view', 'override'); u pm_staff_users%rowtype; it jsonb; rowp record; n int := 0;
   rsn text := left(nullif(btrim(coalesce(p_reason,'')), ''), 300);
 begin
   select * into u from pm_staff_users where id = uid;
@@ -743,7 +810,7 @@ end $$;
 create or replace function pm_staff_users_list(p_token uuid) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 begin
-  perform pm_require(p_token, 3);
+  perform pm_need(p_token, 'users', 'view');
   return coalesce((select jsonb_agg(jsonb_build_object(
       'id', id, 'username', username, 'full_name', full_name, 'role', role, 'active', active,
       'created_at', created_at, 'last_login_at', last_login_at) order by username) from pm_staff_users), '[]'::jsonb);
@@ -751,9 +818,10 @@ end $$;
 
 create or replace function pm_staff_user_add(p_token uuid, p_username text, p_full_name text, p_role text, p_password text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare uname text := lower(btrim(coalesce(p_username,'')));
+declare uname text := lower(btrim(coalesce(p_username,''))); me uuid := pm_need(p_token, 'users', 'edit'); myrole text;
 begin
-  perform pm_require(p_token, 3);
+  select role into myrole from pm_staff_users where id = me;
+  if p_role = 'admin' and myrole <> 'admin' then return jsonb_build_object('ok', false, 'error', 'Only an administrator can create another administrator.'); end if;
   if uname !~ '^[a-z0-9._@+-]{3,64}$' then
     return jsonb_build_object('ok', false, 'error', 'Username must be 3-64 characters: letters, numbers, and . _ @ + - only.');
   end if;
@@ -769,11 +837,16 @@ end $$;
 
 create or replace function pm_staff_user_update(p_token uuid, p_id uuid, p_full_name text, p_role text, p_active boolean) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare me uuid := pm_require(p_token, 3);
+declare me uuid := pm_need(p_token, 'users', 'edit'); myrole text; trole text;
 begin
   if p_role not in ('admin','staff','viewer') then return jsonb_build_object('ok', false, 'error', 'Choose an access level.'); end if;
-  if p_id = me and (p_role <> 'admin' or not coalesce(p_active, true)) then
-    return jsonb_build_object('ok', false, 'error', 'You cannot lower your own access or deactivate yourself. Ask another administrator.');
+  select role into myrole from pm_staff_users where id = me;
+  select role into trole from pm_staff_users where id = p_id;
+  if myrole <> 'admin' and (p_role = 'admin' or trole = 'admin') then
+    return jsonb_build_object('ok', false, 'error', 'Only an administrator can change administrator accounts.');
+  end if;
+  if p_id = me and (p_role <> myrole or not coalesce(p_active, true)) then
+    return jsonb_build_object('ok', false, 'error', 'You cannot change your own access level or deactivate yourself. Ask an administrator.');
   end if;
   update pm_staff_users set full_name = nullif(btrim(coalesce(p_full_name,'')), ''), role = p_role, active = coalesce(p_active, true)
    where id = p_id;
@@ -784,9 +857,11 @@ end $$;
 
 create or replace function pm_staff_user_reset_password(p_token uuid, p_id uuid, p_new text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare uname text;
+declare uname text; me uuid := pm_need(p_token, 'users', 'edit'); myrole text; trole text;
 begin
-  perform pm_require(p_token, 3);
+  select role into myrole from pm_staff_users where id = me;
+  select role into trole from pm_staff_users where id = p_id;
+  if myrole <> 'admin' and trole = 'admin' then return jsonb_build_object('ok', false, 'error', 'Only an administrator can reset an administrator password.'); end if;
   if length(coalesce(p_new,'')) < 10 then return jsonb_build_object('ok', false, 'error', 'Password must be at least 10 characters.'); end if;
   update pm_staff_users set password_hash = crypt(p_new, gen_salt('bf')) where id = p_id returning username into uname;
   if uname is null then return jsonb_build_object('ok', false, 'error', 'User not found.'); end if;
@@ -797,12 +872,66 @@ end $$;
 
 create or replace function pm_staff_user_delete(p_token uuid, p_id uuid) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare me uuid := pm_require(p_token, 3);
+declare me uuid := pm_need(p_token, 'users', 'edit'); myrole text; trole text;
 begin
+  select role into myrole from pm_staff_users where id = me;
+  select role into trole from pm_staff_users where id = p_id;
+  if myrole <> 'admin' and trole = 'admin' then return jsonb_build_object('ok', false, 'error', 'Only an administrator can delete an administrator.'); end if;
   if p_id = me then return jsonb_build_object('ok', false, 'error', 'You cannot delete your own login.'); end if;
   delete from pm_staff_users where id = p_id;
   if not found then return jsonb_build_object('ok', false, 'error', 'User not found.'); end if;
   return jsonb_build_object('ok', true);
+end $$;
+
+
+-- ---------------------------------------------------------------------
+-- Edit what each role can do (administrators only). p_perms null = back to the defaults.
+-- ---------------------------------------------------------------------
+create or replace function pm_staff_role_perms_get(p_token uuid) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform pm_require(p_token, 3);
+  return jsonb_build_object(
+    'roles', jsonb_build_object(
+      'staff',  jsonb_build_object('perms', (select jsonb_build_object('tabs', (pm_default_perms('staff')->'tabs') || coalesce(perms->'tabs','{}'::jsonb), 'actions', (pm_default_perms('staff')->'actions') || coalesce(perms->'actions','{}'::jsonb)) from (select perms from pm_role_perms where role = 'staff' union all select '{}'::jsonb limit 1) x), 'updated_by', (select updated_by from pm_role_perms where role = 'staff'), 'updated_at', (select updated_at from pm_role_perms where role = 'staff')),
+      'viewer', jsonb_build_object('perms', (select jsonb_build_object('tabs', (pm_default_perms('viewer')->'tabs') || coalesce(perms->'tabs','{}'::jsonb), 'actions', (pm_default_perms('viewer')->'actions') || coalesce(perms->'actions','{}'::jsonb)) from (select perms from pm_role_perms where role = 'viewer' union all select '{}'::jsonb limit 1) x), 'updated_by', (select updated_by from pm_role_perms where role = 'viewer'), 'updated_at', (select updated_at from pm_role_perms where role = 'viewer'))),
+    'defaults', jsonb_build_object('staff', pm_default_perms('staff'), 'viewer', pm_default_perms('viewer')));
+end $$;
+
+create or replace function pm_staff_role_perms_set(p_token uuid, p_role text, p_perms jsonb) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare me uuid := pm_require(p_token, 3); uname text; t text; k text; v text; tabs jsonb := '{}'::jsonb; acts jsonb := '{}'::jsonb;
+        before jsonb; after jsonb; cur jsonb;
+begin
+  if p_role not in ('staff','viewer') then return jsonb_build_object('ok', false, 'error', 'Only the Staff and Viewer roles can be edited. Administrators always have full access.'); end if;
+  select username into uname from pm_staff_users where id = me;
+  select perms into before from pm_role_perms where role = p_role;
+  if p_perms is null then
+    delete from pm_role_perms where role = p_role;
+    insert into pm_role_perm_log (username, role, before, after) values (uname, p_role, before, null);
+    return jsonb_build_object('ok', true, 'perms', pm_default_perms(p_role));
+  end if;
+  if jsonb_typeof(p_perms) <> 'object' then return jsonb_build_object('ok', false, 'error', 'Invalid permissions.'); end if;
+  foreach t in array array['overview','cict','settings','users'] loop
+    v := p_perms->'tabs'->>t;
+    if v is null then continue; end if;
+    if v not in ('none','view','edit') then return jsonb_build_object('ok', false, 'error', 'Invalid level for ' || t || '.'); end if;
+    if t in ('overview','cict') and v = 'edit' then v := 'view'; end if;
+    tabs := tabs || jsonb_build_object(t, v);
+  end loop;
+  foreach k in array array['details','export','permit_pdf','override'] loop
+    if p_perms->'actions'->k is null then continue; end if;
+    if jsonb_typeof(p_perms->'actions'->k) <> 'boolean' then return jsonb_build_object('ok', false, 'error', 'Invalid setting for ' || k || '.'); end if;
+    acts := acts || jsonb_build_object(k, p_perms->'actions'->k);
+  end loop;
+  -- Downloading a permit PDF or marking permits complete needs the permit list, which needs names & addresses.
+  if coalesce((acts->>'permit_pdf')::boolean, false) or coalesce((acts->>'override')::boolean, false) then acts := acts || '{"details":true}'::jsonb; end if;
+  cur := jsonb_build_object('tabs', tabs, 'actions', acts);
+  insert into pm_role_perms (role, perms, updated_by, updated_at) values (p_role, cur, uname, now())
+  on conflict (role) do update set perms = excluded.perms, updated_by = excluded.updated_by, updated_at = now();
+  insert into pm_role_perm_log (username, role, before, after) values (uname, p_role, before, cur);
+  after := jsonb_build_object('tabs', (pm_default_perms(p_role)->'tabs') || tabs, 'actions', (pm_default_perms(p_role)->'actions') || acts);
+  return jsonb_build_object('ok', true, 'perms', after);
 end $$;
 
 grant execute on function
@@ -812,7 +941,8 @@ grant execute on function
   pm_staff_save_source(uuid, text, text, jsonb), pm_staff_sync(uuid, text),
   pm_staff_users_list(uuid), pm_staff_user_add(uuid, text, text, text, text), pm_staff_user_update(uuid, uuid, text, text, boolean),
   pm_staff_user_reset_password(uuid, uuid, text), pm_staff_user_delete(uuid, uuid),
-  pm_staff_override(uuid, jsonb, text, text, text), pm_staff_permit_detail(uuid, jsonb)
+  pm_staff_override(uuid, jsonb, text, text, text), pm_staff_permit_detail(uuid, jsonb),
+  pm_staff_role_perms_get(uuid), pm_staff_role_perms_set(uuid, text, jsonb)
 to anon, authenticated;
 
 -- ---------------------------------------------------------------------
