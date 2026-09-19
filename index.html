@@ -195,6 +195,11 @@
     .toolbar .field { min-width: 100%; }
     nav.tabs button { font-size: 12.5px; padding: 8px 2px; }
   }
+  @media (max-width: 560px) {
+    header.top { flex-direction: column; align-items: center; text-align: center; gap: 6px; }
+    .titleblock { text-align: center; }
+    .who { justify-content: center; }
+  }
 </style>
 </head>
 <body>
@@ -680,6 +685,8 @@ const realApi = {
   userUpdate: (id, name, role, active) => rpc('pm_staff_user_update', { p_token: tok(), p_id: id, p_full_name: name, p_role: role, p_active: active }),
   userReset: (id, pw) => rpc('pm_staff_user_reset_password', { p_token: tok(), p_id: id, p_new: pw }),
   userDelete: id => rpc('pm_staff_user_delete', { p_token: tok(), p_id: id }),
+  rolePermsGet: () => rpc('pm_staff_role_perms_get', { p_token: tok() }),
+  rolePermsSet: (role, perms) => rpc('pm_staff_role_perms_set', { p_token: tok(), p_role: role, p_perms: perms }),
 };
 const ROLES = [
   { key: 'admin', label: 'Administrator', desc: 'Everything: dashboard, permit list, CICT report and exports, plus adding users and changing the Google Sheet links.' },
@@ -688,7 +695,14 @@ const ROLES = [
 ];
 const roleLabel = k => (ROLES.find(r => r.key === k) || {}).label || k || '';
 const isAdmin = () => S.role === 'admin';
-const canDetail = () => S.role === 'admin' || S.role === 'staff';
+// Granular role permissions (S.meta.perms). Administrators always have everything, even before meta loads.
+const RANK = { none: 0, view: 1, edit: 2 };
+const rolePerms = () => (S.meta && S.meta.perms) || (isAdmin() ? { tabs: { overview: 'edit', cict: 'edit', settings: 'edit', users: 'edit' }, actions: { details: true, export: true, permit_pdf: true, override: true } } : { tabs: {}, actions: {} });
+const tabLevel = t => (rolePerms().tabs || {})[t] || 'none';
+const canView = t => tabLevel(t) !== 'none';
+const canEdit = t => tabLevel(t) === 'edit';
+const canDo = a => !!((rolePerms().actions || {})[a]);
+const canDetail = () => canDo('details');
 const DEMO_ROWS = [];
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const toks = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
@@ -698,7 +712,25 @@ const demoUsers = [{ id: 'u1', username: 'admin', full_name: 'Demo Administrator
 const demoOv = {};
 const dKey = r => [r.source, r.permit_no || '', r.submitted_on || ''].join('|');
 const demoMe = () => demoUsers.find(u => 'demo:' + u.id === S.token) || { id: null, role: 'viewer' };
+// Mirrors pm_default_perms / pm_perms / pm_need in schema.sql, so demo mode enforces the same rules as the live site.
+const demoDefaultPerms = role => role === 'admin'
+  ? { tabs: { overview: 'edit', cict: 'edit', settings: 'edit', users: 'edit' }, actions: { details: true, export: true, permit_pdf: true, override: true } }
+  : role === 'staff'
+  ? { tabs: { overview: 'view', cict: 'view', settings: 'none', users: 'none' }, actions: { details: true, export: true, permit_pdf: true, override: false } }
+  : { tabs: { overview: 'view', cict: 'view', settings: 'none', users: 'none' }, actions: { details: false, export: false, permit_pdf: false, override: false } };
+const demoRolePerms = {};   // { staff: {perms:{tabs,actions}, updated_by, updated_at}, viewer: {...} } — only the changed roles have an entry
+const demoPerms = role => {
+  const d = demoDefaultPerms(role);
+  if (role === 'admin') return d;
+  const st = (demoRolePerms[role] && demoRolePerms[role].perms) || {};
+  return { tabs: { ...d.tabs, ...(st.tabs || {}) }, actions: { ...d.actions, ...(st.actions || {}) } };
+};
 const demoNeed = lvl => { const r = demoMe().role, l = r === 'admin' ? 3 : r === 'staff' ? 2 : 1; if (l < lvl) { const e = new Error('forbidden'); e.forbidden = true; throw e; } };
+const demoNeed2 = (tab, level, action) => {
+  const pr = demoPerms(demoMe().role);
+  if (tab && RANK[pr.tabs[tab] || 'none'] < RANK[level]) { const e = new Error('forbidden'); e.forbidden = true; throw e; }
+  if (action && !pr.actions[action]) { const e = new Error('forbidden'); e.forbidden = true; throw e; }
+};
 const demoApi = {
   async search(f) {
     await wait(250);
@@ -715,16 +747,19 @@ const demoApi = {
   async logout() {}, async changePassword() { return { ok: false, error: 'Password changes are disabled in demo mode.' }; },
   async meta() {
     const yrs = [...new Set(DEMO_ROWS.map(r => fyOf(r.submitted_on)).filter(Boolean).concat([fyOf(todayISO())]))].sort((a, b) => b - a);
-    return { role: demoMe().role, username: demoMe().username, full_name: demoMe().full_name, years: yrs, undated: 0, sources: SOURCES.map(s => ({ source: s.key, label: s.label, csv_url: '', mapping: {}, last_sync_at: null, last_sync_ok: null, last_sync_msg: 'Demo mode', last_sync_rows: DEMO_ROWS.filter(r => r.source === s.key).length, last_missing: [], has_inspections: true })) };
+    const perms = demoPerms(demoMe().role);
+    return { role: demoMe().role, username: demoMe().username, full_name: demoMe().full_name, years: yrs, undated: 0, perms, sources: SOURCES.map(s => ({ source: s.key, label: s.label, csv_url: '', mapping: {}, last_sync_at: null, last_sync_ok: null, last_sync_msg: 'Demo mode', last_sync_rows: DEMO_ROWS.filter(r => r.source === s.key).length, last_missing: [], has_inspections: true })) };
   },
   async summary(fy) {
-    await wait(120); const o = {};
+    await wait(120); demoNeed2('overview', 'view'); const o = {};
     SOURCES.forEach(s => { const rs = DEMO_ROWS.filter(r => r.source === s.key && inFy(r, fy)); o[s.key] = { label: s.label, count: rs.length, fees: sumC(rs, r => r.permit_fee), fees_paid: sumC(rs.filter(r => r.paid || demoOv[dKey(r)]), r => r.permit_fee), fees_paid_override: sumC(rs.filter(r => !r.paid && demoOv[dKey(r)]), r => r.permit_fee), cict: sumC(rs, r => r.cict_fee) }; });
     return o;
   },
-  async permits(fy) { await wait(120); demoNeed(2); return DEMO_ROWS.filter(r => inFy(r, fy)).map(r => { const o = demoOv[dKey(r)]; return o ? { ...r, overridden: true, real_paid: r.paid, real_complete: r.complete, paid: true, inspection_started: true, coo_given: true, complete: true, override_reason: o.reason, override_by: o.by, override_at: o.at } : { ...r, real_paid: r.paid, real_complete: r.complete }; }).sort((a, b) => String(b.submitted_on).localeCompare(String(a.submitted_on)) || String(a.permit_no).localeCompare(String(b.permit_no))); },
+  async permits(fy) { await wait(120); demoNeed2('overview', 'view', 'details'); return DEMO_ROWS.filter(r => inFy(r, fy)).map(r => { const o = demoOv[dKey(r)]; return o ? { ...r, overridden: true, real_paid: r.paid, real_complete: r.complete, paid: true, inspection_started: true, coo_given: true, complete: true, override_reason: o.reason, override_by: o.by, override_at: o.at } : { ...r, real_paid: r.paid, real_complete: r.complete }; }).sort((a, b) => String(b.submitted_on).localeCompare(String(a.submitted_on)) || String(a.permit_no).localeCompare(String(b.permit_no))); },
   async cict(fy, m, paid) {
     await wait(120);
+    const pr = demoPerms(demoMe().role);
+    if (pr.tabs.cict === 'none' && pr.tabs.overview === 'none') { const e = new Error('forbidden'); e.forbidden = true; throw e; }
     let from, to;
     if (m == null) { from = `${fy - 1}-10-01`; to = `${fy}-09-30`; }
     else { const y = monthYear(fy, m), last = new Date(Date.UTC(y, m, 0)).getUTCDate(); from = `${y}-${String(m).padStart(2, '0')}-01`; to = `${y}-${String(m).padStart(2, '0')}-${last}`; }
@@ -732,11 +767,11 @@ const demoApi = {
     const bm = {}; rows.forEach(r => { const k = r.submitted_on.slice(0, 7); (bm[k] = bm[k] || { month: k, count: 0, cents: 0 }); bm[k].count++; bm[k].cents += cents(r.cict_fee); });
     return { from, to, total: sumC(rows, r => r.cict_fee), paid_total: sumC(rows.filter(r => r.paid), r => r.cict_fee), override_total: sumC(rows.filter(r => r.by_override), r => r.cict_fee), override_count: rows.filter(r => r.by_override).length, count: rows.length,
       by_source: SOURCES.map(s => { const rs = rows.filter(r => r.source === s.key); return { source: s.key, label: s.label, count: rs.length, cict: sumC(rs, r => r.cict_fee) }; }),
-      by_month: Object.values(bm).sort((a, b) => a.month.localeCompare(b.month)).map(x => ({ month: x.month, count: x.count, cict: x.cents / 100 })), rows: demoMe().role === 'viewer' ? [] : rows };
+      by_month: Object.values(bm).sort((a, b) => a.month.localeCompare(b.month)).map(x => ({ month: x.month, count: x.count, cict: x.cents / 100 })), rows: pr.actions.details ? rows : [] };
   },
-  async saveSource() { demoNeed(3); return { ok: false, error: 'Demo mode' }; }, async sync() { demoNeed(3); return {}; },
+  async saveSource() { demoNeed2('settings', 'edit'); return { ok: false, error: 'Demo mode' }; }, async sync() { demoNeed2('settings', 'edit'); return {}; },
   async permitDetail(items) {
-    await wait(150); demoNeed(2);
+    await wait(150); demoNeed2(null, 'view', 'details'); demoNeed2(null, 'view', 'permit_pdf');
     return items.map(it => DEMO_ROWS.find(r => dKey(r) === [it.source, it.permit_no || '', it.submitted_on || ''].join('|'))).filter(Boolean).map(r => {
       const o = demoOv[dKey(r)]; const inspN = Object.keys(r.inspections || {});
       const details = [['Permit #', r.permit_no], ['Submission Date', fmtDate(r.submitted_on)], ['Applicant Name', r.applicant], ['Address', r.address], ['Estimated Cost Background', '$250,000'], ['Permit Fee', money(r.permit_fee)], ['Permit Fee Background', money(r.permit_fee)], ['CICT Fee', money(r.cict_fee)], ['Type of Payment Received', r.payment_type]].concat(inspN.map(k => [k + ' Inspection', r.inspections[k]])).concat([['Notes', 'Sample record (demo data). This is a long note used to show how longer text wraps neatly onto the next line inside the value column of the permit PDF.']]).map(([l, v]) => ({ l, v: v == null ? '' : String(v) })).filter(d => d.v !== '');
@@ -744,7 +779,7 @@ const demoApi = {
     });
   },
   async override(items, action, pw, reason) {
-    demoNeed(3); const me = demoMe();
+    demoNeed2('overview', 'view', 'override'); const me = demoMe();
     if (!['set', 'clear'].includes(action)) return { ok: false, error: 'Unknown action.' };
     if (!items || !items.length) return { ok: false, error: 'Select at least one permit first.' };
     if (pw !== me.pw) return { ok: false, error: 'Your password was not correct, so nothing was changed.' };
@@ -752,9 +787,11 @@ const demoApi = {
     items.forEach(it => { const k = [it.source, it.permit_no || '', it.submitted_on || ''].join('|'); if (!DEMO_ROWS.some(r => dKey(r) === k) || !it.permit_no) return; if (action === 'set') demoOv[k] = { reason: String(reason || '').trim() || null, by: me.username, at: new Date().toISOString() }; else delete demoOv[k]; n++; });
     return { ok: true, count: n };
   },
-  async users() { demoNeed(3); return demoUsers.map(({ pw, ...u }) => u).sort((a, b) => a.username.localeCompare(b.username)); },
+  async users() { demoNeed2('users', 'view'); return demoUsers.map(({ pw, ...u }) => u).sort((a, b) => a.username.localeCompare(b.username)); },
   async userAdd(f) {
-    demoNeed(3); const un = String(f.username || '').trim().toLowerCase();
+    demoNeed2('users', 'edit'); const myrole = demoMe().role;
+    if (f.role === 'admin' && myrole !== 'admin') return { ok: false, error: 'Only an administrator can create another administrator.' };
+    const un = String(f.username || '').trim().toLowerCase();
     if (!/^[a-z0-9._@+-]{3,64}$/.test(un)) return { ok: false, error: 'Username must be 3-64 characters: letters, numbers, and . _ @ + - only.' };
     if (!ROLES.some(r => r.key === f.role)) return { ok: false, error: 'Choose an access level.' };
     if (String(f.password || '').length < 10) return { ok: false, error: 'Password must be at least 10 characters.' };
@@ -763,17 +800,50 @@ const demoApi = {
     return { ok: true };
   },
   async userUpdate(id, name, role, active) {
-    demoNeed(3); if (id === demoMe().id && (role !== 'admin' || !active)) return { ok: false, error: 'You cannot lower your own access or deactivate yourself. Ask another administrator.' };
-    const x = demoUsers.find(z => z.id === id); if (!x) return { ok: false, error: 'User not found.' };
+    demoNeed2('users', 'edit'); const myrole = demoMe().role, x = demoUsers.find(z => z.id === id);
+    const trole = x ? x.role : null;
+    if (myrole !== 'admin' && (role === 'admin' || trole === 'admin')) return { ok: false, error: 'Only an administrator can change administrator accounts.' };
+    if (id === demoMe().id && (role !== myrole || !active)) return { ok: false, error: 'You cannot change your own access level or deactivate yourself. Ask an administrator.' };
+    if (!x) return { ok: false, error: 'User not found.' };
     x.full_name = String(name || '').trim() || null; x.role = role; x.active = !!active; return { ok: true };
   },
   async userReset(id, pw) {
-    demoNeed(3); if (String(pw || '').length < 10) return { ok: false, error: 'Password must be at least 10 characters.' };
-    const x = demoUsers.find(z => z.id === id); if (!x) return { ok: false, error: 'User not found.' }; x.pw = pw; return { ok: true };
+    demoNeed2('users', 'edit'); const myrole = demoMe().role, x = demoUsers.find(z => z.id === id);
+    if (myrole !== 'admin' && x && x.role === 'admin') return { ok: false, error: 'Only an administrator can reset an administrator password.' };
+    if (String(pw || '').length < 10) return { ok: false, error: 'Password must be at least 10 characters.' };
+    if (!x) return { ok: false, error: 'User not found.' }; x.pw = pw; return { ok: true };
   },
   async userDelete(id) {
-    demoNeed(3); if (id === demoMe().id) return { ok: false, error: 'You cannot delete your own login.' };
+    demoNeed2('users', 'edit'); const myrole = demoMe().role, x = demoUsers.find(z => z.id === id);
+    if (myrole !== 'admin' && x && x.role === 'admin') return { ok: false, error: 'Only an administrator can delete an administrator.' };
+    if (id === demoMe().id) return { ok: false, error: 'You cannot delete your own login.' };
     const i = demoUsers.findIndex(z => z.id === id); if (i < 0) return { ok: false, error: 'User not found.' }; demoUsers.splice(i, 1); return { ok: true };
+  },
+  async rolePermsGet() {
+    if (demoMe().role !== 'admin') { const e = new Error('forbidden'); e.forbidden = true; throw e; }
+    const info = role => ({ perms: demoPerms(role), updated_by: (demoRolePerms[role] && demoRolePerms[role].updated_by) || null, updated_at: (demoRolePerms[role] && demoRolePerms[role].updated_at) || null });
+    return { roles: { staff: info('staff'), viewer: info('viewer') }, defaults: { staff: demoDefaultPerms('staff'), viewer: demoDefaultPerms('viewer') } };
+  },
+  async rolePermsSet(role, perms) {
+    if (demoMe().role !== 'admin') { const e = new Error('forbidden'); e.forbidden = true; throw e; }
+    if (!['staff', 'viewer'].includes(role)) return { ok: false, error: 'Only the Staff and Viewer roles can be edited. Administrators always have full access.' };
+    if (perms == null) { delete demoRolePerms[role]; return { ok: true, perms: demoDefaultPerms(role) }; }
+    if (typeof perms !== 'object') return { ok: false, error: 'Invalid permissions.' };
+    const tabs = {}, acts = {};
+    for (const t of ['overview', 'cict', 'settings', 'users']) {
+      let v = perms.tabs && perms.tabs[t]; if (v == null) continue;
+      if (!['none', 'view', 'edit'].includes(v)) return { ok: false, error: 'Invalid level for ' + t + '.' };
+      if ((t === 'overview' || t === 'cict') && v === 'edit') v = 'view';
+      tabs[t] = v;
+    }
+    for (const k of ['details', 'export', 'permit_pdf', 'override']) {
+      const v = perms.actions && perms.actions[k]; if (v === undefined) continue;
+      if (typeof v !== 'boolean') return { ok: false, error: 'Invalid setting for ' + k + '.' };
+      acts[k] = v;
+    }
+    if (acts.permit_pdf || acts.override) acts.details = true;
+    demoRolePerms[role] = { perms: { tabs, actions: acts }, updated_by: demoMe().username, updated_at: new Date().toISOString() };
+    return { ok: true, perms: demoPerms(role) };
   },
 };
 const api = DEMO ? demoApi : realApi;
@@ -790,6 +860,7 @@ const S = {
   cr: { fy: null, month: 'all', paidOnly: false, data: null, loading: false },
   set: { busy: null },
   users: { list: null, reset: null, del: null },
+  rp: { data: null, busy: null, draft: { staff: { tabs: {}, actions: {} }, viewer: { tabs: {}, actions: {} } } },
 };
 
 const header = (title, right = '') => `<header class="top"><div class="titleblock"><div class="city">CITY OF ARAB, ALABAMA</div><h1>${title}<span class="beta-tag" title="This site is in beta: it is still being tested and improved">Beta</span></h1></div>${right}</header>`;
@@ -850,7 +921,7 @@ function loginView() {
 
 /* ---------- admin ---------- */
 function adminShell(inner) {
-  const tabs = [['overview', 'Overview'], ['cict', 'CICT Report'], ...(isAdmin() ? [['users', 'Users'], ['settings', 'Sheets & Sync']] : []), ['account', 'Account']];
+  const tabs = [['overview', 'Overview'], ['cict', 'CICT Report'], ...(canView('users') ? [['users', 'Users']] : []), ...(canView('settings') ? [['settings', 'Sheets & Sync']] : []), ['account', 'Account']];
   return `${header('Permit Administration', `<div class="who">${esc(S.user || '')} <span class="pill r-${esc(S.role || 'viewer')}">${esc(roleLabel(S.role))}</span><button class="btn small" data-act="logout" type="button">Log out</button></div>`)}
     <nav class="tabs">${tabs.map(([k, l]) => `<button data-act="tab" data-tab="${k}" class="${S.tab === k ? 'active' : ''}" type="button">${l}</button>`).join('')}</nav>
     <main>${inner}</main>`;
@@ -875,10 +946,10 @@ function permitTableHTML() {
 }
 function selBarHTML() {
   if (!canDetail()) return '';
-  const o = S.ov, n = Object.keys(o.sel).length, adm = isAdmin();
-  if (!n) return `<div class="hint" style="margin:10px 0 0">Tick permits in the table to download a permit PDF${adm ? ', or to mark them complete (an override, which asks for your password)' : ''}.</div>`;
+  const o = S.ov, n = Object.keys(o.sel).length, canOv = canDo('override'), canPdf = canDo('permit_pdf');
+  if (!n) return canPdf || canOv ? `<div class="hint" style="margin:10px 0 0">Tick permits in the table${canPdf ? ' to download a permit PDF' : ''}${canPdf && canOv ? ',' : ''}${canOv ? ' or to mark them complete (an override, which asks for your password)' : ''}.</div>` : '';
   const picked = (o.permits || []).filter(r => o.sel[ovKey(r)]), nOv = picked.filter(r => r.overridden).length;
-  if (!o.confirm) return `<div class="selbar"><b>${n} selected</b><button class="btn small solid" data-act="permit-pdf" type="button"${o.pdfBusy ? ' disabled' : ''}>${o.pdfBusy ? 'Preparing PDF…' : n === 1 ? 'Download permit PDF' : `Download PDF (${n} permits)`}</button>${adm ? `<button class="btn small" data-act="ov-start-set" type="button">Mark complete…</button>${nOv ? `<button class="btn small" data-act="ov-start-clear" type="button">Remove override (${nOv})</button>` : ''}` : ''}<button class="link" data-act="ov-clear-sel" type="button">Clear selection</button></div>`;
+  if (!o.confirm) return `<div class="selbar"><b>${n} selected</b>${canPdf ? `<button class="btn small solid" data-act="permit-pdf" type="button"${o.pdfBusy ? ' disabled' : ''}>${o.pdfBusy ? 'Preparing PDF…' : n === 1 ? 'Download permit PDF' : `Download PDF (${n} permits)`}</button>` : ''}${canOv ? `<button class="btn small" data-act="ov-start-set" type="button">Mark complete…</button>${nOv ? `<button class="btn small" data-act="ov-start-clear" type="button">Remove override (${nOv})</button>` : ''}` : ''}<button class="link" data-act="ov-clear-sel" type="button">Clear selection</button></div>`;
   const setting = o.confirm === 'set';
   return `<div class="selbar confirm"><div class="section-title" style="font-size:15px">${setting ? `Mark ${n} permit${n === 1 ? '' : 's'} complete?` : `Remove the override from ${n} permit${n === 1 ? '' : 's'}?`}</div>
     <p class="section-sub">${setting ? 'Every step will show as complete when the applicant looks the permit up. Paid, inspection, Certificate of Occupancy and complete will all show as done, and the paid totals and CICT paid-only report will count these permits as paid. The fee amounts and the Google Sheet are not changed, and this is recorded in a log.' : 'These permits go back to showing whatever the sheet says.'}</p>
@@ -896,7 +967,7 @@ function overviewView() {
   const stat = (i, s) => { const x = sm && sm[s.key]; return `<div class="stat ${['', 'b2', 'b3'][i]}"><div class="k">${s.key === 'sign' ? 'Sign permit fees' : 'Building permit fees — ' + (s.key === 'building' ? 'Contractor/Owner' : 'Sub Trade')}</div>
     <div class="amt">${x ? money(x.fees) : '…'}</div><div class="sub">${x ? `${x.count} permit${x.count === 1 ? '' : 's'} · ${money(x.fees_paid)} paid · ${money(x.fees - x.fees_paid)} unpaid${x.fees_paid_override ? ` · ${money(x.fees_paid_override)} of the paid is by override` : ''}` : ''}</div></div>`; };
   const c = S.cc, cd = c.data;
-  return `<div class="toolbar"><div class="field"><label for="ov_fy">Fiscal year</label><select id="ov_fy" data-bind="ov.fy">${fyOptions(o.fy, true)}</select></div>${canDetail() ? exportBtns('ov-export', !!sm && !!o.permits) : ''}</div>
+  return `<div class="toolbar"><div class="field"><label for="ov_fy">Fiscal year</label><select id="ov_fy" data-bind="ov.fy">${fyOptions(o.fy, true)}</select></div>${canDetail() && canDo('export') ? exportBtns('ov-export', !!sm && !!o.permits) : ''}</div>
     ${S.meta && S.meta.undated ? `<div class="banner caution">${S.meta.undated} permit row${S.meta.undated === 1 ? ' has' : 's have'} no readable submission date. They count in “Overall” but not in any fiscal year.</div>` : ''}
     <div class="stat-grid">${SOURCES.map((s, i) => stat(i, s)).join('')}</div>
     <div class="card cict-card">
@@ -905,7 +976,7 @@ function overviewView() {
         <div class="field"><label for="cc_m">Month</label><select id="cc_m" data-bind="cc.month">${monthOptions(c.fy, c.month)}</select></div></div></div>
       <div class="center"><div class="k" style="font-size:12.5px;font-weight:600;color:var(--ink-soft)">${c.month === 'all' ? esc(fyLabel(c.fy)) : esc(monthLabel(c.fy, +c.month))}</div>
         <div class="amt">${cd ? money(cd.total) : '…'}</div><div class="hint">${cd ? `${cd.count} permit${cd.count === 1 ? '' : 's'} with a CICT fee` : ''}</div>
-        <button class="link" data-act="open-cict" type="button">Open CICT report${canDetail() ? ' &amp; exports' : ''} →</button></div>
+        <button class="link" data-act="open-cict" type="button">Open CICT report${canDetail() && canDo('export') ? ' &amp; exports' : ''} →</button></div>
     </div>
     ${!canDetail() ? '' : `<div class="card"><div class="toolbar" style="margin-bottom:0"><div><div class="section-title">Permits in this period</div><p class="section-sub" style="margin:0">${o.fy === 'all' ? 'All fiscal years' : esc(fyLabel(o.fy) + ' · ' + fyRangeText(o.fy))}</p></div>
       <div class="field" style="min-width:240px"><label for="ov_q">Filter</label><input id="ov_q" data-bind="ov.filter" placeholder="Permit #, name, or address" value="${esc(o.filter)}"></div></div>
@@ -922,49 +993,79 @@ function cictTabView() {
     ${!canDetail() ? '' : `<div class="table-wrap"><table class="admin-table"><thead><tr><th>Permit #</th><th>Type</th><th>Submitted</th><th>Applicant</th><th>Address</th><th class="num">Permit fee</th><th class="num">CICT fee</th><th>Paid</th></tr></thead><tbody>
       ${d.rows.map(r => `<tr><td>${esc(r.permit_no || '—')}</td><td>${esc(r.label)}</td><td>${fmtDate(r.submitted_on)}</td><td>${esc(r.applicant || '')}</td><td>${esc(r.address || '')}</td><td class="num">${money(r.permit_fee)}</td><td class="num">${money(r.cict_fee)}</td><td>${r.paid ? (r.by_override ? 'Yes (override)' : 'Yes') : 'No'}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No permits with a CICT fee in this period.</td></tr>'}
       ${d.rows.length ? `<tr class="tot"><td colspan="5">Total</td><td class="num">${money(sumC(d.rows, r => r.permit_fee))}</td><td class="num">${money(sumC(d.rows, r => r.cict_fee))}</td><td></td></tr>` : ''}</tbody></table></div>`}`;
-  return `<div class="card"><div class="section-title">CICT fee report</div><p class="section-sub">${canDetail() ? 'Choose the period, then export the results for the monthly report.' : 'Choose the period to see the totals.'}</p>
+  return `<div class="card"><div class="section-title">CICT fee report</div><p class="section-sub">${canDetail() && canDo('export') ? 'Choose the period, then export the results for the monthly report.' : 'Choose the period to see the totals.'}</p>
       <div class="row2" style="grid-template-columns:1fr 1fr 1fr">
         <div class="field"><label for="cr_fy">Fiscal year</label><select id="cr_fy" data-bind="cr.fy">${fyOptions(c.fy, false)}</select></div>
         <div class="field"><label for="cr_m">Month</label><select id="cr_m" data-bind="cr.month">${monthOptions(c.fy, c.month)}</select></div>
         <div class="field"><label for="cr_p">Count</label><select id="cr_p" data-bind="cr.paidOnly"><option value="0"${c.paidOnly ? '' : ' selected'}>All submitted permits</option><option value="1"${c.paidOnly ? ' selected' : ''}>Paid permits only</option></select></div></div></div>
-    ${!canDetail() ? '' : `<div class="card export-card"><div class="toolbar" style="margin:0"><div><div class="section-title">Export CICT report</div><p class="section-sub" style="margin:0">Exports exactly what is selected above: <b>${esc(crTitle(c))}</b>.</p></div>${exportBtns('cict-export', !!d && !c.loading)}</div></div>`}
+    ${!canDetail() || !canDo('export') ? '' : `<div class="card export-card"><div class="toolbar" style="margin:0"><div><div class="section-title">Export CICT report</div><p class="section-sub" style="margin:0">Exports exactly what is selected above: <b>${esc(crTitle(c))}</b>.</p></div>${exportBtns('cict-export', !!d && !c.loading)}</div></div>`}
     <div class="card">${result}</div>`;
 }
 function fmtWhen(iso) { if (!iso) return 'never'; return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }); }
 function settingsView() {
   const m = S.meta; if (!m) return '<div class="spinner"></div>';
-  return `<div class="banner beta"><b>How syncing works:</b> the site reads each Google Sheet’s published CSV link automatically about once an hour, whether or not anyone is logged in. To get a link: in the sheet choose <i>File → Share → Publish to web</i>, pick the tab and <i>Comma-separated values (.csv)</i>, then paste the link below.</div>
-    <div class="toolbar"><div></div><button class="btn solid" data-act="sync-all" type="button"${S.set.busy ? ' disabled' : ''}>${S.set.busy === 'all' ? 'Syncing…' : '⟳ Sync all sheets now'}</button></div>
+  const editable = canEdit('settings');
+  return `${editable ? '' : '<div class="banner caution">You can see sync status here, but only an administrator (or a role granted edit access) can change these links.</div>'}
+    <div class="banner beta"><b>How syncing works:</b> the site reads each Google Sheet’s published CSV link automatically about once an hour, whether or not anyone is logged in. To get a link: in the sheet choose <i>File → Share → Publish to web</i>, pick the tab and <i>Comma-separated values (.csv)</i>, then paste the link below.</div>
+    ${editable ? `<div class="toolbar"><div></div><button class="btn solid" data-act="sync-all" type="button"${S.set.busy ? ' disabled' : ''}>${S.set.busy === 'all' ? 'Syncing…' : '⟳ Sync all sheets now'}</button></div>` : ''}
     ${m.sources.map(s => `<div class="card slip"><div class="section-title">${esc(s.label)}</div>
-      <div class="field"><label for="url_${s.source}">Published CSV link</label><input id="url_${s.source}" data-src="${s.source}" value="${esc(s.csv_url)}" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?output=csv"></div>
+      <div class="field"><label for="url_${s.source}">Published CSV link</label><input id="url_${s.source}" data-src="${s.source}" value="${esc(s.csv_url)}" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?output=csv"${editable ? '' : ' readonly'}></div>
       <p class="section-sub" style="margin-bottom:8px">Last sync: ${esc(fmtWhen(s.last_sync_at))} — ${s.last_sync_ok === false ? `<span class="st-bad">failed: ${esc(s.last_sync_msg)}</span>` : s.last_sync_ok ? `<span class="st-ok">${esc(s.last_sync_msg)}</span>` : 'not synced yet'}</p>
       ${s.last_missing && s.last_missing.length ? `<div class="banner caution">Columns not found in this sheet: <b>${esc(s.last_missing.join(', '))}</b>. Those fields will be blank. Check the column names in the sheet or edit the mapping below.</div>` : ''}
-      <div class="btnrow"><button class="btn" data-act="save-src" data-src="${s.source}" type="button">Save link</button><button class="btn solid" data-act="save-sync" data-src="${s.source}" type="button"${S.set.busy ? ' disabled' : ''}>${S.set.busy === s.source ? 'Syncing…' : 'Save & sync now'}</button></div>
-      <details><summary>Column mapping (advanced)</summary><p class="hint">Which sheet column headers feed each field. If a header appears more than once in the sheet, all copies are checked and the first filled-in one is used.</p><textarea id="map_${s.source}" spellcheck="false">${esc(JSON.stringify(s.mapping, null, 2))}</textarea></details></div>`).join('')}`;
+      ${editable ? `<div class="btnrow"><button class="btn" data-act="save-src" data-src="${s.source}" type="button">Save link</button><button class="btn solid" data-act="save-sync" data-src="${s.source}" type="button"${S.set.busy ? ' disabled' : ''}>${S.set.busy === s.source ? 'Syncing…' : 'Save & sync now'}</button></div>
+      <details><summary>Column mapping (advanced)</summary><p class="hint">Which sheet column headers feed each field. If a header appears more than once in the sheet, all copies are checked and the first filled-in one is used.</p><textarea id="map_${s.source}" spellcheck="false">${esc(JSON.stringify(s.mapping, null, 2))}</textarea></details>` : ''}</div>`).join('')}`;
 }
 function usersView() {
-  const u = S.users;
+  const u = S.users, editable = canEdit('users'), pickRoles = ROLES.filter(r => isAdmin() || r.key !== 'admin');
   const rowHTML = x => {
     const me = x.username === S.user;
-    const acts = u.reset === x.id
+    const locked = !isAdmin() && x.role === 'admin';   // even with users:edit, only an administrator can touch an administrator account
+    const canRow = editable && !locked;
+    const acts = !canRow ? (locked ? '<span class="hint" style="margin:0">Only an administrator can change this account.</span>' : '')
+      : u.reset === x.id
       ? `<input id="rp_${x.id}" type="password" placeholder="New password (10+ characters)" autocomplete="new-password" aria-label="New password for ${esc(x.username)}"><button class="btn small solid" data-act="user-reset-save" data-id="${x.id}" type="button">Save password</button><button class="btn small" data-act="user-reset-cancel" type="button">Cancel</button>`
       : u.del === x.id
         ? `<span class="hint" style="margin:0">Delete ${esc(x.username)} permanently?</span><button class="btn small solid" style="background:var(--danger);border-color:var(--danger)" data-act="user-del-yes" data-id="${x.id}" type="button">Yes, delete</button><button class="btn small" data-act="user-del-no" type="button">Cancel</button>`
         : `<button class="btn small" data-act="user-reset" data-id="${x.id}" type="button">Reset password</button>${me ? '' : `<button class="btn small" data-act="user-toggle" data-id="${x.id}" type="button">${x.active ? 'Deactivate' : 'Activate'}</button><button class="btn small" data-act="user-del" data-id="${x.id}" type="button">Delete</button>`}`;
     return `<div class="urow${x.active ? '' : ' off'}" data-uid="${x.id}"><div class="top2"><div><div class="nm">${esc(x.full_name || x.username)}${me ? ' <span class="hint" style="display:inline">(you)</span>' : ''}</div><div class="un">${esc(x.username)} · last sign-in ${esc(fmtWhen(x.last_login_at))}</div></div>
-      <div class="btnrow" style="align-items:center">${x.active ? '' : '<span class="pill s-off">Deactivated</span>'}<select data-urole="${x.id}" aria-label="Access level for ${esc(x.username)}"${me ? ' disabled' : ''}>${ROLES.map(r => `<option value="${r.key}"${x.role === r.key ? ' selected' : ''}>${r.label}</option>`).join('')}</select></div></div>
+      <div class="btnrow" style="align-items:center">${x.active ? '' : '<span class="pill s-off">Deactivated</span>'}${canRow && !me ? `<select data-urole="${x.id}" aria-label="Access level for ${esc(x.username)}">${pickRoles.map(r => `<option value="${r.key}"${x.role === r.key ? ' selected' : ''}>${r.label}</option>`).join('')}</select>` : `<span class="pill r-${esc(x.role)}">${esc(roleLabel(x.role))}</span>`}</div></div>
       <div class="acts">${acts}</div></div>`;
   };
-  return `<form class="card slip" id="userAddForm" autocomplete="off"><div class="section-title">Add a user</div>
+  return `${editable ? `<form class="card slip" id="userAddForm" autocomplete="off"><div class="section-title">Add a user</div>
       <p class="section-sub">Choose their username, access level and a temporary password, then give those to them. They can change the password on the Account tab.</p>
       <div class="row2"><div class="field"><label for="u_name">Username <span class="req">*</span></label><input id="u_name" autocomplete="off" autocapitalize="none" required></div>
         <div class="field"><label for="u_full">Full name</label><input id="u_full" autocomplete="off"></div></div>
-      <div class="row2"><div class="field"><label for="u_role">Access level <span class="req">*</span></label><select id="u_role">${ROLES.map(r => `<option value="${r.key}"${r.key === 'staff' ? ' selected' : ''}>${r.label}</option>`).join('')}</select></div>
+      <div class="row2"><div class="field"><label for="u_role">Access level <span class="req">*</span></label><select id="u_role">${pickRoles.map(r => `<option value="${r.key}"${r.key === 'staff' ? ' selected' : ''}>${r.label}</option>`).join('')}</select></div>
         <div class="field"><label for="u_pw">Temporary password <span class="req">*</span></label><input id="u_pw" type="password" autocomplete="new-password" required><div class="hint">At least 10 characters.</div></div></div>
       <ul class="rolekey">${ROLES.map(r => `<li><b>${r.label}</b> — ${esc(r.desc)}</li>`).join('')}</ul>
-      <button class="primary" type="submit" style="width:auto;padding:11px 22px">Add user</button></form>
-    <div class="card"><div class="section-title">People with access</div><p class="section-sub">Changing an access level takes effect immediately. Deactivating someone signs them out and blocks their login without deleting them.</p>
-      ${u.list ? (u.list.map(rowHTML).join('') || '<div class="empty">No users yet.</div>') : '<div class="spinner"></div>'}</div>`;
+      <button class="primary" type="submit" style="width:auto;padding:11px 22px">Add user</button></form>` : ''}
+    <div class="card"><div class="section-title">People with access</div><p class="section-sub">${editable ? 'Changing an access level takes effect immediately. Deactivating someone signs them out and blocks their login without deleting them.' : 'You can see who has access, but only an administrator (or a role granted edit access) can make changes here.'}</p>
+      ${u.list ? (u.list.map(rowHTML).join('') || '<div class="empty">No users yet.</div>') : '<div class="spinner"></div>'}</div>
+    ${isAdmin() ? rolePermsHTML() : ''}`;
+}
+function rolePermRowHTML(role) {
+  const d = S.rp.draft[role], meta = (S.rp.data && S.rp.data.roles[role]) || {};
+  const busy = S.rp.busy === role;
+  const TABS = [['overview', 'Overview'], ['cict', 'CICT Report'], ['settings', 'Sheets & Sync'], ['users', 'Users']];
+  const NOEDIT = new Set(['overview', 'cict']);
+  const ACTS = [['details', 'See applicant names & addresses'], ['export', 'Export files (Excel / PDF / CSV)'], ['permit_pdf', 'Download per-permit PDFs'], ['override', 'Mark permits complete (override)']];
+  return `<div class="card slip" style="margin-top:12px"><div class="top2"><div class="nm">${esc(roleLabel(role))}</div>
+      <span class="hint" style="margin:0">${meta.updated_at ? `Customized ${esc(fmtWhen(meta.updated_at))}${meta.updated_by ? ' by ' + esc(meta.updated_by) : ''}` : 'Using the default permissions'}</span></div>
+    <div class="row2">${TABS.map(([k, l]) => `<div class="field"><label for="rp_${role}_${k}">${l}</label>
+        <select id="rp_${role}_${k}" data-rp="${role}" data-rptab="${k}"${busy ? ' disabled' : ''}>
+          <option value="none"${d.tabs[k] === 'none' ? ' selected' : ''}>No access</option>
+          <option value="view"${d.tabs[k] === 'view' ? ' selected' : ''}>View</option>
+          ${NOEDIT.has(k) ? '' : `<option value="edit"${d.tabs[k] === 'edit' ? ' selected' : ''}>Edit</option>`}
+        </select></div>`).join('')}</div>
+    <div class="btnrow" style="flex-wrap:wrap;gap:14px;margin:10px 0">${ACTS.map(([k, l]) => `<label style="display:flex;align-items:center;gap:6px;font-size:13.5px"><input type="checkbox" data-rp="${role}" data-rpact="${k}"${d.actions[k] ? ' checked' : ''}${busy ? ' disabled' : ''}> ${l}</label>`).join('')}</div>
+    <p class="hint">Downloading a permit PDF or marking permits complete needs the permit list, so turning either of those on also turns on “See applicant names &amp; addresses”.</p>
+    <div class="btnrow"><button class="btn solid" data-act="rp-save" data-role="${role}" type="button"${busy ? ' disabled' : ''}>${busy ? 'Saving…' : 'Save changes'}</button>
+      <button class="btn" data-act="rp-reset" data-role="${role}" type="button"${busy ? ' disabled' : ''}>Reset to defaults</button></div></div>`;
+}
+function rolePermsHTML() {
+  return `<div class="card"><div class="section-title">Role permissions</div>
+    <p class="section-sub">Choose which tabs Staff and Viewer can see, their access level on each, and what they're allowed to do. Administrators always have full access, and only an administrator can change this.</p>
+    ${S.rp.data ? ['staff', 'viewer'].map(rolePermRowHTML).join('') : '<div class="spinner"></div>'}</div>`;
 }
 function accountView() {
   return `<div class="card"><div class="section-title">Your account</div><p class="section-sub" style="margin:0">Signed in as <b>${esc(S.user || '')}</b> — ${esc(roleLabel(S.role))}. ${esc((ROLES.find(r => r.key === S.role) || {}).desc || '')}</p></div>
@@ -974,7 +1075,7 @@ function accountView() {
     <div class="field"><label for="pw_c">Confirm new password</label><input id="pw_c" type="password" autocomplete="new-password" required></div>
     <button class="primary" type="submit">Update password</button></form>`;
 }
-function adminView() { const t = (S.tab === 'users' || S.tab === 'settings') && !isAdmin() ? 'overview' : S.tab; return adminShell(t === 'overview' ? overviewView() : t === 'cict' ? cictTabView() : t === 'settings' ? settingsView() : t === 'users' ? usersView() : accountView()); }
+function adminView() { const t = (S.tab === 'users' && !canView('users')) || (S.tab === 'settings' && !canView('settings')) ? 'overview' : S.tab; return adminShell(t === 'overview' ? overviewView() : t === 'cict' ? cictTabView() : t === 'settings' ? settingsView() : t === 'users' ? usersView() : accountView()); }
 
 function render() {
   $app.className = S.view === 'admin' ? 'wide' : '';
@@ -1002,6 +1103,13 @@ async function loadCR() {
   if (S.view === 'admin' && S.tab === 'cict') render();
 }
 async function loadUsers() { const l = await guard(() => api.users()); if (l) { S.users.list = l; S.users.reset = null; S.users.del = null; if (S.view === 'admin' && S.tab === 'users') render(); } }
+async function loadRolePerms() {
+  if (!isAdmin()) return;
+  const d = await guard(() => api.rolePermsGet()); if (!d) return;
+  S.rp.data = d; S.rp.busy = null;
+  S.rp.draft = { staff: JSON.parse(JSON.stringify(d.roles.staff.perms)), viewer: JSON.parse(JSON.stringify(d.roles.viewer.perms)) };
+  if (S.view === 'admin' && S.tab === 'users') render();
+}
 async function loadMeta() { const m = await guard(() => api.meta()); if (m) { S.meta = m; render(); } return m; }
 async function enterAdmin() {
   S.view = 'admin'; S.tab = 'overview';
@@ -1014,7 +1122,7 @@ async function enterAdmin() {
 }
 async function doLogout(silent) {
   if (!silent) { try { await api.logout(); } catch (e) { /* ignore */ } }
-  S.token = null; S.user = null; S.role = null; S.meta = null; S.users = { list: null, reset: null, del: null }; S.ov.filter = ''; S.ov.sel = {}; S.ov.confirm = null; S.view = 'public'; try { sessionStorage.removeItem('pm_token'); sessionStorage.removeItem('pm_user'); } catch (e) { /* ignore */ }
+  S.token = null; S.user = null; S.role = null; S.meta = null; S.users = { list: null, reset: null, del: null }; S.rp = { data: null, busy: null, draft: { staff: { tabs: {}, actions: {} }, viewer: { tabs: {}, actions: {} } } }; S.ov.filter = ''; S.ov.sel = {}; S.ov.confirm = null; S.view = 'public'; try { sessionStorage.removeItem('pm_token'); sessionStorage.removeItem('pm_user'); } catch (e) { /* ignore */ }
   history.replaceState(null, '', location.pathname + location.search); relClear(); render();
 }
 
@@ -1032,6 +1140,12 @@ document.addEventListener('change', async e => {
     const r = await guard(() => api.userUpdate(x.id, x.full_name, t.value, x.active));
     if (r && r.ok) toast('Access level updated.'); else if (r) toast(r.error || 'Could not update.', true);
     return loadUsers();
+  }
+  if (t.dataset.rp && t.dataset.rptab) { S.rp.draft[t.dataset.rp].tabs[t.dataset.rptab] = t.value; return; }
+  if (t.dataset.rp && t.dataset.rpact) {
+    S.rp.draft[t.dataset.rp].actions[t.dataset.rpact] = t.checked;
+    if ((t.dataset.rpact === 'permit_pdf' || t.dataset.rpact === 'override') && t.checked) S.rp.draft[t.dataset.rp].actions.details = true;
+    return render();
   }
   if (t.dataset.sel !== undefined) { if (t.checked) S.ov.sel[t.dataset.sel] = true; else delete S.ov.sel[t.dataset.sel]; S.ov.confirm = null; return refreshOv(false); }
   if (t.dataset.selall !== undefined) { ovRows().shown.filter(r => r.permit_no).forEach(r => { if (t.checked) S.ov.sel[ovKey(r)] = true; else delete S.ov.sel[ovKey(r)]; }); S.ov.confirm = null; return refreshOv(true); }
@@ -1083,7 +1197,7 @@ document.addEventListener('click', async e => {
   else if (act === 'goto-public') { S.view = 'public'; history.replaceState(null, '', location.pathname + location.search); render(); }
   else if (act === 'demo-fill') { S.pub.form = { type: 'building', date: '2025-09-30', name: "O'Neil Builders", addr: '431 oak' }; S.pub.invalid = []; S.pub.error = ''; render(); }
   else if (act === 'logout') doLogout();
-  else if (act === 'tab') { S.tab = el.dataset.tab; render(); if (S.tab === 'cict') { if (!S.cr.data && !S.cr.loading) loadCR(); } else if (S.tab === 'settings') loadMeta(); else if (S.tab === 'users') loadUsers(); else if (S.tab === 'overview') { loadOverview(); loadCC(); } }
+  else if (act === 'tab') { S.tab = el.dataset.tab; render(); if (S.tab === 'cict') { if (!S.cr.data && !S.cr.loading) loadCR(); } else if (S.tab === 'settings') loadMeta(); else if (S.tab === 'users') { loadUsers(); loadRolePerms(); } else if (S.tab === 'overview') { loadOverview(); loadCC(); } }
   else if (act === 'open-cict') { S.cr.fy = S.cc.fy; S.cr.month = S.cc.month; S.tab = 'cict'; loadCR(); }
   else if (act === 'user-reset') { S.users.reset = el.dataset.id; S.users.del = null; render(); const i = document.getElementById('rp_' + el.dataset.id); if (i) i.focus(); }
   else if (act === 'user-reset-cancel') { S.users.reset = null; render(); }
@@ -1126,6 +1240,20 @@ document.addEventListener('click', async e => {
     if (!recs) return;
     if (!recs.length) return toast('Could not find those permits. Refresh the list and try again.', true);
     try { savePermitPdf(recs); toast(recs.length === 1 ? 'Permit PDF downloaded.' : `${recs.length} permits downloaded in one PDF.`); } catch (x) { toast('Could not build the PDF.', true); }
+  }
+  else if (act === 'rp-save') {
+    const role = el.dataset.role, d = S.rp.draft[role];
+    S.rp.busy = role; render();
+    const r = await guard(() => api.rolePermsSet(role, d)); S.rp.busy = null;
+    if (r && r.ok) { toast(roleLabel(role) + ' permissions saved.'); return loadRolePerms(); }
+    if (r) toast(r.error || 'Could not save.', true); render();
+  }
+  else if (act === 'rp-reset') {
+    const role = el.dataset.role;
+    S.rp.busy = role; render();
+    const r = await guard(() => api.rolePermsSet(role, null)); S.rp.busy = null;
+    if (r && r.ok) toast(roleLabel(role) + ' reset to the default permissions.'); else if (r) toast(r.error || 'Could not reset.', true);
+    await loadRolePerms();
   }
   else if (act === 'rel-close') relClose();
   else if (act === 'rel-open') showRelease(relSide);
