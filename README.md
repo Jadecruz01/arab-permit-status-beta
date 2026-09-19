@@ -24,9 +24,11 @@ An administrator can tick permits in the Overview table and choose **Mark comple
 
 Staff and administrators can tick one or more permits in the Overview table and choose **Download permit PDF**. Each permit gets a formatted record (status tracker, summary, and every field from the sheet). Any field whose name contains "background" is left out. The full field list is stored at each sync, so permits already loaded need one more sync before their details appear.
 
-**Update notice**
+**Update notices**
 
-Each time the site is updated, a notice pops up on every visit and refresh. Closing it shrinks it into a banner at the top that goes away by itself after about a minute. When you change `index.html`, edit the `RELEASE` block (version, date, notes) so the notice describes the update.
+There are two separate notices. The public permit lookup shows its own notice whenever the page loads, and the staff area shows its own when it opens (after signing in, or on refresh). Closing a notice shrinks it into a banner at the top that goes away by itself after about a minute. When you change `index.html`, edit only the matching block in `RELEASES` (`public` for the lookup, `admin` for the staff area: version, date, notes) so each side only describes its own updates.
+
+A "Beta" label shows at the top of both sides of the site.
 
 **Access levels**
 
