@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#23405A">
+<title>City of Arab — Permit Status</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:wght@600;700&display=swap">
+<style>
+  :root {
+    --bg: #F4F6F4; --surface: #FFFFFF; --surface-alt: #E9EEE9;
+    --ink: #182A36; --ink-soft: #52646E;
+    --primary: #1B4B72; --primary-dark: #123350;
+    --accent: #4B7A45; --accent-dark: #365B32;
+    --success: #3D7A5C; --success-bg: #E4F0EA;
+    --danger: #A23B3B; --danger-bg: #F6E6E6;
+    --warn: #8A5A12; --warn-bg: #F8EFD9;
+    --border: #D7DDD5;
+    --serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+    --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101C24; --surface: #182832; --surface-alt: #1E323D;
+      --ink: #E8ECE6; --ink-soft: #A2B2AC;
+      --primary: #6E9DC4; --primary-dark: #4B7CA3;
+      --accent: #8FBF83; --accent-dark: #6FA063;
+      --success: #85C1A1; --success-bg: #1D3128;
+      --danger: #E3928E; --danger-bg: #3A2323;
+      --warn: #E6C27A; --warn-bg: #3A3020;
+      --border: #2D4048;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  #app { max-width: 560px; margin: 0 auto; padding-bottom: 64px; }
+  #app.wide { max-width: 1100px; }
+
+  header.top {
+    position: sticky; top: 0; z-index: 20; background: var(--surface); color: var(--ink);
+    padding: 14px 18px 13px; display: flex; align-items: center; gap: 12px;
+    border-bottom: 3px solid var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .titleblock { flex: 1; min-width: 0; }
+  .titleblock .city { font-size: 11.5px; letter-spacing: 0.02em; color: var(--accent-dark); font-weight: 600; line-height: 1; }
+  .titleblock h1 { font-family: var(--serif); font-weight: 600; font-size: 19px; margin: 2px 0 0; line-height: 1.15; color: var(--primary); }
+  .who { font-size: 12.5px; color: var(--ink-soft); display: flex; align-items: center; gap: 10px; }
+
+  nav.tabs { display: flex; gap: 2px; margin: 14px 16px 0; background: var(--surface-alt); border-radius: 10px; padding: 3px; }
+  nav.tabs button { flex: 1; padding: 9px 6px; border: none; background: transparent; font-family: var(--sans); font-size: 13.5px; font-weight: 600; color: var(--ink-soft); border-radius: 8px; cursor: pointer; }
+  nav.tabs button.active { background: var(--surface); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+  main { padding: 18px 16px 0; }
+  .lede { color: var(--ink-soft); font-size: 14.5px; line-height: 1.5; margin: 4px 0 18px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; position: relative; }
+  .card.slip { border-left: 4px solid var(--accent); }
+  .field { margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-soft); margin-bottom: 5px; }
+  label .req { color: var(--danger); }
+  .hint { font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
+  input, select, textarea { width: 100%; font-family: var(--sans); font-size: 15px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--ink); }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .invalid { border-color: var(--danger) !important; background: var(--danger-bg); }
+  textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; min-height: 180px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .row2 .field, .sel2 .field { margin-bottom: 0; }
+
+  button.primary { width: 100%; padding: 12px 16px; border: none; border-radius: 9px; background: var(--primary); color: #FBF9F4; font-family: var(--sans); font-size: 15px; font-weight: 600; cursor: pointer; }
+  button.primary:active { background: var(--primary-dark); }
+  button.ghost { width: 100%; padding: 11px 16px; border-radius: 9px; cursor: pointer; background: transparent; border: 1px solid var(--border); color: var(--ink); font-family: var(--sans); font-size: 14.5px; font-weight: 600; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 8px; cursor: pointer; font-family: var(--sans); font-size: 13.5px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--ink); width: auto; }
+  .btn.solid { background: var(--primary); border-color: var(--primary); color: #FBF9F4; }
+  .btn.small { padding: 6px 10px; font-size: 12.5px; }
+  .link { background: none; border: none; color: var(--primary); font-weight: 600; font-size: 13.5px; cursor: pointer; padding: 6px 0; text-decoration: none; display: inline-block; font-family: var(--sans); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .center { text-align: center; }
+
+  .banner { border-radius: 9px; padding: 11px 13px; font-size: 13px; line-height: 1.45; margin-bottom: 14px; }
+  .banner.beta { background: var(--surface-alt); color: var(--ink-soft); border: 1px solid var(--border); }
+  .banner.warn { background: var(--danger-bg); color: var(--danger); }
+  .banner.caution { background: var(--warn-bg); color: var(--warn); }
+  .banner.ok { background: var(--success-bg); color: var(--success); }
+  footer.betafoot { text-align: center; color: var(--ink-soft); font-size: 11.5px; padding: 20px 24px 10px; line-height: 1.5; }
+  .section-title { font-family: var(--serif); font-size: 16.5px; font-weight: 600; margin: 0 0 4px; }
+  .section-sub { color: var(--ink-soft); font-size: 12.5px; margin: 0 0 14px; }
+  .empty { text-align: center; padding: 34px 20px; color: var(--ink-soft); font-size: 14px; line-height: 1.5; }
+  .spinner { width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--border); border-top-color: var(--primary); margin: 14px auto; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- public result / progress tracker ---------- */
+  .p-hd { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .p-no { font-family: var(--serif); font-size: 19px; font-weight: 600; }
+  .p-meta { color: var(--ink-soft); font-size: 13.5px; line-height: 1.5; margin: 6px 0 0; }
+  .pill { font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 20px; white-space: nowrap; display: inline-block; }
+  .pill.type { background: var(--surface-alt); color: var(--primary); border: 1px solid var(--border); }
+  .pill.s-complete { background: var(--success-bg); color: var(--success); }
+  .pill.s-paid { background: var(--surface-alt); color: var(--primary); }
+  .pill.s-insp { background: var(--warn-bg); color: var(--warn); }
+  .pill.s-sub { background: var(--surface-alt); color: var(--ink-soft); }
+  .pbar { height: 8px; background: var(--surface-alt); border-radius: 8px; overflow: hidden; margin: 18px 0 14px; }
+  .pbar > i { display: block; height: 100%; background: var(--accent); border-radius: 8px; }
+  ol.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 6px; }
+  .step { text-align: center; }
+  .step .dot { width: 30px; height: 30px; border-radius: 50%; margin: 0 auto 7px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; border: 2px solid var(--border); background: var(--surface); color: var(--ink-soft); }
+  .step.done .dot { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .step.current .dot { border-color: var(--primary); color: var(--primary); box-shadow: 0 0 0 3px rgba(27,75,114,.16); }
+  .step .lbl { font-size: 12.5px; font-weight: 700; line-height: 1.2; }
+  .step .cap { font-size: 11.5px; color: var(--ink-soft); line-height: 1.3; margin-top: 3px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip { font-size: 12px; font-weight: 600; background: var(--success-bg); color: var(--success); padding: 3px 9px; border-radius: 14px; }
+
+  /* ---------- admin ---------- */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
+  .toolbar .field { margin: 0; min-width: 210px; }
+  .btnrow { display: flex; flex-wrap: wrap; gap: 8px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 16px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--primary); border-radius: 12px; padding: 16px 18px; }
+  .stat.b2 { border-left-color: var(--accent); }
+  .stat.b3 { border-left-color: #B08A2E; }
+  .stat .k { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
+  .stat .amt { font-family: var(--serif); font-size: 28px; font-weight: 700; color: var(--primary); margin: 4px 0 2px; }
+  .stat .sub { font-size: 12.5px; color: var(--ink-soft); line-height: 1.45; }
+  .cict-card { display: grid; grid-template-columns: 1.1fr 1fr; gap: 20px; align-items: center; }
+  .cict-card .amt { font-family: var(--serif); font-size: 34px; font-weight: 700; color: var(--primary); }
+  .sel2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .kv { display: flex; justify-content: space-between; font-size: 14px; padding: 7px 0; border-bottom: 1px dashed var(--border); }
+  .kv:last-child { border-bottom: none; }
+  .kv .k { color: var(--ink-soft); }
+  .kv.total { font-weight: 700; border-top: 1px solid var(--border); border-bottom: none; margin-top: 4px; padding-top: 10px; }
+  table.admin-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.admin-table th, table.admin-table td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.admin-table th { background: var(--surface-alt); color: var(--ink-soft); font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; position: sticky; top: 0; }
+  table.admin-table td.num, table.admin-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.admin-table tr.tot td { font-weight: 700; background: var(--surface-alt); }
+  .table-wrap { overflow: auto; max-height: 460px; margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; }
+  .export-card { border-left: 4px solid var(--primary); }
+  .st-ok { color: var(--success); font-weight: 600; } .st-bad { color: var(--danger); font-weight: 600; }
+  details { margin-top: 10px; } summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--primary); }
+  #toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); max-width: 92vw; z-index: 50; padding: 11px 16px; border-radius: 10px; font-size: 13.5px; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.2); background: var(--primary-dark); color: #fff; display: none; }
+  #toast.bad { background: var(--danger); }
+  @media (max-width: 760px) {
+    .stat-grid { grid-template-columns: 1fr; }
+    .cict-card { grid-template-columns: 1fr; }
+    .row2, .sel2 { grid-template-columns: 1fr; }
+    .toolbar .field { min-width: 100%; }
+    nav.tabs button { font-size: 12.5px; padding: 8px 2px; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" role="status"></div>
+
+<script>
+'use strict';
+/* ====================================================================
+   CONFIG — paste your Supabase project URL and anon (public) key here.
+   While these are blank the site runs in DEMO mode with sample data.
+   ==================================================================== */
+const CONFIG = { SUPABASE_URL: 'https://yighcuismepfmappcfui.supabase.co', SUPABASE_ANON_KEY: 'sb_publishable_nGh6iXqOO0iKTPo6uOvXSA_x4ZjIEUi' };
+const DEMO = !CONFIG.SUPABASE_URL;
+
+/* ---------------- helpers ---------------- */
+const $app = document.getElementById('app');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const FY_MONTHS = [10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+const money = n => (Number(n) || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+const cents = n => Math.round((Number(n) || 0) * 100);
+const fmtDate = d => d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : '—';
+const fyOf = d => d ? (+d.slice(0, 4) + (+d.slice(5, 7) >= 10 ? 1 : 0)) : null;
+const monthYear = (fy, m) => (m >= 10 ? fy - 1 : fy);
+const monthLabel = (fy, m) => `${MONTHS[m - 1]} ${monthYear(fy, m)}`;
+const fyLabel = fy => `FY${fy}`;
+const fyRangeText = fy => `Oct 1, ${fy - 1} – Sep 30, ${fy}`;
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const longDate = iso => { if (!iso) return ''; const [y, m, d] = iso.split('-').map(Number); return `${MONTHS[m - 1]} ${d}, ${y}`; };
+const SOURCES = [
+  { key: 'building', label: 'Building Permit – Contractor/Owner' },
+  { key: 'subtrade', label: 'Building Permit – Sub Trade' },
+  { key: 'sign', label: 'Sign Permit' },
+];
+const sourceLabel = k => (SOURCES.find(s => s.key === k) || {}).label || k;
+
+function defaultPeriod() {            // the month most recently finished — what the monthly report is usually for
+  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  return { fy: fyOf(iso), month: d.getMonth() + 1 };
+}
+function stageOf(r) { return r.complete ? 'complete' : r.paid ? 'paid' : r.inspection_started ? 'insp' : 'sub'; }
+const STAGE_TXT = { complete: 'Complete', paid: 'Paid', insp: 'In inspection', sub: 'Submitted' };
+const stageLabel = r => STAGE_TXT[stageOf(r)];
+
+let toastT;
+function toast(msg, bad) {
+  const t = document.getElementById('toast'); t.textContent = msg; t.className = bad ? 'bad' : ''; t.style.display = 'block';
+  clearTimeout(toastT); toastT = setTimeout(() => { t.style.display = 'none'; }, 6000);
+}
+
+/* ====================================================================
+   FILE WRITERS — CSV, Excel (.xlsx) and PDF, no third-party libraries
+   ==================================================================== */
+function saveBlob(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+/* ---- CSV ---- */
+function csvBlob(rows) {
+  const cell = v => { let s = v == null ? '' : String(v); if (typeof v === 'string' && /^[=+@\t\r]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
+  return new Blob(['\ufeff' + rows.map(r => r.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+}
+/* ---- ZIP (stored) ---- */
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function zipBlob(files, type) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  const now = new Date();
+  const dT = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const dD = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  let off = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name), data = enc.encode(f.data), crc = crc32(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, dT, true); lh.setUint16(12, dD, true); lh.setUint32(14, crc, true);
+    lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(lh.buffer), name, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+    ch.setUint16(12, dT, true); ch.setUint16(14, dD, true); ch.setUint32(16, crc, true);
+    ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, name.length, true);
+    ch.setUint32(42, off, true);
+    central.push(new Uint8Array(ch.buffer), name);
+    off += 30 + name.length + data.length;
+  }
+  let cdSize = 0; for (const c of central) cdSize += c.length;
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type });
+}
+/* ---- XLSX ----  sheet = { name, widths:[..], rows:[[cell,..],..], freeze }
+       cell = string | number | null | { v, s:'bold'|'title'|'header'|'money'|'moneyBold'|'date'|'note', f:'SUM(..)' } */
+const XL_STY = { bold: 1, title: 2, header: 3, money: 4, moneyBold: 5, date: 6, note: 7 };
+const xe = s => String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const xcol = i => { let s = '', n = i + 1; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+const xdate = iso => { const [y, m, d] = iso.split('-').map(Number); return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000); };
+function xcell(ref, c) {
+  if (c == null || c === '') return '';
+  let v = c, st = '', f = null;
+  if (typeof c === 'object') { v = c.v; st = c.s || ''; f = c.f || null; }
+  const sid = XL_STY[st]; const sa = sid ? ` s="${sid}"` : '';
+  if (f != null) return `<c r="${ref}"${sa}><f>${xe(f)}</f><v>${Number(v) || 0}</v></c>`;
+  if (typeof v === 'number') return `<c r="${ref}"${sa}><v>${v}</v></c>`;
+  if (st === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return `<c r="${ref}"${sa}><v>${xdate(v)}</v></c>`;
+  return `<c r="${ref}"${sa} t="inlineStr"><is><t xml:space="preserve">${xe(v)}</t></is></c>`;
+}
+function xlsxBlob(sheets) {
+  const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+  const R = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+  const HDR = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  const files = [];
+  files.push({ name: '[Content_Types].xml', data: HDR + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('') + '</Types>' });
+  files.push({ name: '_rels/.rels', data: HDR + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' });
+  files.push({ name: 'xl/workbook.xml', data: HDR + `<workbook ${NS} ${R}><sheets>` + sheets.map((s, i) => `<sheet name="${xe(s.name.replace(/[\\\/?*\[\]:]/g, ' ').slice(0, 31))}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('') + '</sheets></workbook>' });
+  files.push({ name: 'xl/_rels/workbook.xml.rels', data: HDR + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('') + `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` });
+  files.push({ name: 'xl/styles.xml', data: HDR + `<styleSheet ${NS}><numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/></numFmts><fonts count="5"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><color rgb="FF1B4B72"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><i/><sz val="10"/><color rgb="FF52646E"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1B4B72"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="3" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/><xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="left"/></xf><xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>` });
+  sheets.forEach((sh, i) => {
+    const cols = sh.widths ? '<cols>' + sh.widths.map((w, j) => `<col min="${j + 1}" max="${j + 1}" width="${w}" customWidth="1"/>`).join('') + '</cols>' : '';
+    const pane = sh.freeze ? '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/>' : '';
+    const rows = sh.rows.map((r, ri) => { const cs = r.map((c, ci) => xcell(xcol(ci) + (ri + 1), c)).join(''); return cs ? `<row r="${ri + 1}">${cs}</row>` : ''; }).join('');
+    files.push({ name: `xl/worksheets/sheet${i + 1}.xml`, data: HDR + `<worksheet ${NS}><sheetViews><sheetView workbookViewId="0"${i === 0 ? ' tabSelected="1"' : ''}>${pane}</sheetView></sheetViews>${cols}<sheetData>${rows}</sheetData></worksheet>` });
+  });
+  return zipBlob(files, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+}
+/* ---- PDF (Helvetica, letter landscape) ---- */
+const W_REG = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
+const W_BLD = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];
+const pdfClean = s => String(s ?? '').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/…/g, '...').replace(/ /g, ' ').replace(/[\r\n\t]+/g, ' ').replace(/[^\x20-\x7E¡-ÿ]/g, '?');
+const pdfEsc = s => pdfClean(s).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+const pdfW = (s, size, bold) => { const t = bold ? W_BLD : W_REG; let w = 0; for (const ch of pdfClean(s)) { const c = ch.charCodeAt(0); w += (c >= 32 && c <= 126) ? t[c - 32] : 556; } return w * size / 1000; };
+function pdfFit(s, maxW, size, bold) { s = pdfClean(s); if (pdfW(s, size, bold) <= maxW) return s; while (s.length > 1 && pdfW(s + '...', size, bold) > maxW) s = s.slice(0, -1); return s + '...'; }
+const rgb = h => [1, 3, 5].map(i => (parseInt(h.slice(i, i + 2), 16) / 255).toFixed(3));
+const C_PRIMARY = rgb('#1B4B72'), C_GRAY = rgb('#52646E'), C_ZEBRA = rgb('#F1F4F1'), C_LINE = rgb('#D7DDD5'), C_BLACK = ['0', '0', '0'], C_WHITE = ['1', '1', '1'];
+class PdfDoc {
+  constructor() { this.PW = 792; this.PH = 612; this.pages = []; this.cur = null; }
+  addPage() { this.cur = []; this.pages.push(this.cur); return this; }
+  text(s, x, y, o = {}) {
+    const size = o.size || 9, bold = !!o.bold, w = pdfW(s, size, bold);
+    const xx = o.align === 'right' ? x - w : o.align === 'center' ? x - w / 2 : x;
+    this.cur.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf ${(o.color || C_BLACK).join(' ')} rg ${xx.toFixed(2)} ${(this.PH - y).toFixed(2)} Td (${pdfEsc(s)}) Tj ET`);
+  }
+  rect(x, y, w, h, color) { this.cur.push(`${color.join(' ')} rg ${x.toFixed(2)} ${(this.PH - y - h).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`); }
+  line(x1, y1, x2, y2, color = C_LINE, lw = 0.6) { this.cur.push(`${color.join(' ')} RG ${lw} w ${x1.toFixed(2)} ${(this.PH - y1).toFixed(2)} m ${x2.toFixed(2)} ${(this.PH - y2).toFixed(2)} l S`); }
+  blob(title) {
+    const objs = [], n = this.pages.length;
+    objs[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+    objs[2] = `<< /Type /Pages /Kids [${this.pages.map((_, i) => `${6 + i * 2} 0 R`).join(' ')}] /Count ${n} >>`;
+    objs[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+    objs[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+    objs[5] = `<< /Title (${pdfEsc(title)}) /Producer (City of Arab Permit Status) >>`;
+    this.pages.forEach((p, i) => {
+      const body = p.join('\n');
+      objs[6 + i * 2] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${this.PW} ${this.PH}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${7 + i * 2} 0 R >>`;
+      objs[7 + i * 2] = `<< /Length ${body.length} >>\nstream\n${body}\nendstream`;
+    });
+    let out = '%PDF-1.4\n%âãÏÓ\n'; const offs = [];
+    for (let i = 1; i < objs.length; i++) { offs[i] = out.length; out += `${i} 0 obj\n${objs[i]}\nendobj\n`; }
+    const xr = out.length;
+    out += `xref\n0 ${objs.length}\n0000000000 65535 f \n` + offs.slice(1).map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('');
+    out += `trailer\n<< /Size ${objs.length} /Root 1 0 R /Info 5 0 R >>\nstartxref\n${xr}\n%%EOF`;
+    const u8 = new Uint8Array(out.length); for (let i = 0; i < out.length; i++) u8[i] = out.charCodeAt(i) & 255;
+    return new Blob([u8], { type: 'application/pdf' });
+  }
+}
+/* report = { title, lines:[..], blocks:[ {heading?, note?, cols:[{h,w,a}], rows:[[..]], total?:[..]} ] } */
+function pdfReport(rep) {
+  const doc = new PdfDoc(), M = 40, TOP = 40, BOT = 44, RH = 15, FS = 8.5, USABLE = doc.PW - 2 * M;
+  let y = 0;
+  const newPage = first => {
+    doc.addPage(); y = TOP;
+    if (first) {
+      doc.text('CITY OF ARAB, ALABAMA', M, y + 8, { size: 8.5, bold: true, color: C_GRAY }); y += 26;
+      doc.text(rep.title, M, y, { size: 18, bold: true, color: C_PRIMARY }); y += 16;
+      rep.lines.forEach(l => { doc.text(l, M, y + 4, { size: 10, color: C_GRAY }); y += 14; });
+      y += 8;
+    } else { doc.text(rep.title + ' (continued)', M, y + 6, { size: 9, bold: true, color: C_GRAY }); y += 20; }
+  };
+  const header = (cols, xs) => {
+    doc.rect(M, y, USABLE, RH + 2, C_PRIMARY);
+    cols.forEach((c, i) => doc.text(pdfFit(c.h, c.w - 8, FS, true), c.a === 'r' ? xs[i] + c.w - 4 : xs[i] + 4, y + 11.5, { size: FS, bold: true, color: C_WHITE, align: c.a === 'r' ? 'right' : 'left' }));
+    y += RH + 2;
+  };
+  newPage(true);
+  rep.blocks.forEach(b => {
+    const sum = b.cols.reduce((a, c) => a + c.w, 0); const cols = b.cols.map(c => ({ ...c, w: c.w * USABLE / sum }));
+    const xs = []; let acc = M; cols.forEach(c => { xs.push(acc); acc += c.w; });
+    if (b.heading) { if (y + 60 > doc.PH - BOT) newPage(false); doc.text(b.heading, M, y + 8, { size: 12, bold: true, color: C_PRIMARY }); y += 16; }
+    if (b.note) { doc.text(b.note, M, y + 6, { size: 8.5, color: C_GRAY }); y += 14; }
+    if (y + RH * 3 > doc.PH - BOT) newPage(false);
+    header(cols, xs);
+    const drawRow = (r, i, bold) => {
+      if (y + RH > doc.PH - BOT) { newPage(false); header(cols, xs); }
+      if (!bold && i % 2 === 1) doc.rect(M, y, USABLE, RH, C_ZEBRA);
+      if (bold) { doc.line(M, y, M + USABLE, y, C_GRAY, 0.8); }
+      cols.forEach((c, j) => { const t = pdfFit(r[j] == null ? '' : r[j], c.w - 8, FS, bold); doc.text(t, c.a === 'r' ? xs[j] + c.w - 4 : xs[j] + 4, y + 10.5, { size: FS, bold, align: c.a === 'r' ? 'right' : 'left' }); });
+      y += RH;
+    };
+    if (!b.rows.length) { doc.text('No permits found for this selection.', M + 4, y + 12, { size: 9.5, color: C_GRAY }); y += 22; }
+    b.rows.forEach((r, i) => drawRow(r, i, false));
+    if (b.total && b.rows.length) drawRow(b.total, 0, true);
+    y += 18;
+  });
+  const N = doc.pages.length, stamp = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+  doc.pages.forEach((p, i) => {
+    doc.cur = p;
+    doc.line(M, doc.PH - 34, doc.PW - M, doc.PH - 34);
+    doc.text('City of Arab Building Department', M, doc.PH - 22, { size: 8, color: C_GRAY });
+    doc.text('Generated ' + stamp, doc.PW / 2, doc.PH - 22, { size: 8, color: C_GRAY, align: 'center' });
+    doc.text(`Page ${i + 1} of ${N}`, doc.PW - M, doc.PH - 22, { size: 8, color: C_GRAY, align: 'right' });
+  });
+  return doc.blob(rep.title);
+}
+
+/* ---------- export column definitions and builders ---------- */
+const COLS_OV = [
+  { h: 'Permit #', w: 14, pw: 62, g: r => r.permit_no || '' },
+  { h: 'Permit type', w: 34, pw: 148, g: r => r.label },
+  { h: 'Date submitted', ph: 'Submitted', w: 14, pw: 58, t: 'date', g: r => r.submitted_on },
+  { h: 'Applicant', w: 26, pw: 100, g: r => r.applicant || '' },
+  { h: 'Address', w: 40, pw: 128, g: r => r.address || '' },
+  { h: 'Permit fee', w: 13, pw: 58, t: 'money', g: r => r.permit_fee },
+  { h: 'CICT fee', w: 12, pw: 48, t: 'money', g: r => r.cict_fee },
+  { h: 'Paid', w: 8, pw: 0, g: r => (r.paid ? 'Yes' : 'No') },
+  { h: 'Payment type', w: 14, pw: 0, g: r => r.payment_type || '' },
+  { h: 'Stage', w: 16, pw: 64, g: r => stageLabel(r) },
+];
+const COLS_CICT = [
+  { h: 'Permit #', w: 14, pw: 62, g: r => r.permit_no || '' },
+  { h: 'Permit type', w: 34, pw: 140, g: r => r.label },
+  { h: 'Date submitted', ph: 'Submitted', w: 14, pw: 62, t: 'date', g: r => r.submitted_on },
+  { h: 'Applicant', w: 26, pw: 110, g: r => r.applicant || '' },
+  { h: 'Address', w: 40, pw: 170, g: r => r.address || '' },
+  { h: 'Permit fee', w: 13, pw: 62, t: 'money', g: r => r.permit_fee },
+  { h: 'CICT fee', w: 12, pw: 56, t: 'money', g: r => r.cict_fee },
+  { h: 'Paid', w: 8, pw: 40, g: r => (r.paid ? 'Yes' : 'No') },
+];
+const sumC = (rows, f) => rows.reduce((a, r) => a + cents(f(r)), 0) / 100;
+function detailSheet(name, cols, rows) {
+  const head = cols.map(c => ({ v: c.h, s: 'header' }));
+  const body = rows.map(r => cols.map(c => { const v = c.g(r); return c.t === 'money' ? { v: Number(v) || 0, s: 'money' } : c.t === 'date' ? { v: v || '', s: 'date' } : v; }));
+  const n = rows.length;
+  const tot = cols.map((c, i) => i === 0 ? { v: 'Total', s: 'bold' } : c.t === 'money' ? { v: sumC(rows, c.g), s: 'moneyBold', f: `SUM(${xcol(i)}2:${xcol(i)}${n + 1})` } : null);
+  return { name, widths: cols.map(c => c.w), rows: [head, ...body, ...(n ? [tot] : [])], freeze: true };
+}
+function csvDetail(cols, rows) {
+  const out = [cols.map(c => c.h)];
+  rows.forEach(r => out.push(cols.map(c => c.t === 'money' ? (Number(c.g(r)) || 0).toFixed(2) : c.t === 'date' ? fmtDate(c.g(r)) : c.g(r))));
+  if (rows.length) out.push(cols.map((c, i) => i === 0 ? 'Total' : c.t === 'money' ? sumC(rows, c.g).toFixed(2) : ''));
+  return out;
+}
+function pdfDetailBlock(cols, rows, heading) {
+  const use = cols.filter(c => c.pw > 0);
+  return { heading, cols: use.map(c => ({ h: c.ph || c.h, w: c.pw, a: c.t === 'money' ? 'r' : 'l' })), rows: rows.map(r => use.map(c => c.t === 'money' ? money(c.g(r)) : c.t === 'date' ? fmtDate(c.g(r)) : c.g(r))),
+    total: use.map((c, i) => i === 0 ? 'Total' : c.t === 'money' ? money(sumC(rows, c.g)) : '') };
+}
+const stamp = () => todayISO();
+
+function exportOverview(fmt) {
+  const o = S.ov, rows = o.permits || [], sm = o.summary; if (!sm) return;
+  const per = o.fy === 'all' ? 'Overall (all fiscal years)' : `${fyLabel(o.fy)} (${fyRangeText(o.fy)})`;
+  const tag = o.fy === 'all' ? 'All' : fyLabel(o.fy);
+  if (fmt === 'csv') return saveBlob(csvBlob(csvDetail(COLS_OV, rows)), `Permits_${tag}_${stamp()}.csv`);
+  const sumRows = SOURCES.map(s => { const x = sm[s.key] || {}; return { label: s.label, count: x.count || 0, fees: x.fees || 0, paid: x.fees_paid || 0, cict: x.cict || 0 }; });
+  if (fmt === 'xlsx') {
+    const n = sumRows.length, r0 = 6;
+    const srows = [
+      [{ v: 'City of Arab, Alabama - Permit Fee Summary', s: 'title' }], [{ v: per, s: 'bold' }], [{ v: 'Fiscal year runs Oct 1 - Sep 30; permits are counted by date submitted. Generated ' + longDate(stamp()), s: 'note' }], [],
+      ['Permit type', 'Permits', 'Permit fees', 'Fees paid', 'Fees unpaid', 'CICT fees'].map(v => ({ v, s: 'header' })),
+      ...sumRows.map((r, i) => [r.label, r.count, { v: r.fees, s: 'money' }, { v: r.paid, s: 'money' }, { v: Math.round((r.fees - r.paid) * 100) / 100, s: 'money', f: `C${r0 + i}-D${r0 + i}` }, { v: r.cict, s: 'money' }]),
+      [{ v: 'Total', s: 'bold' }, { v: sumRows.reduce((a, r) => a + r.count, 0), s: 'bold', f: `SUM(B${r0}:B${r0 + n - 1})` },
+        ...['C', 'D', 'E', 'F'].map((L, i) => ({ v: [sumC(sumRows, r => r.fees), sumC(sumRows, r => r.paid), sumC(sumRows, r => r.fees - r.paid), sumC(sumRows, r => r.cict)][i], s: 'moneyBold', f: `SUM(${L}${r0}:${L}${r0 + n - 1})` }))],
+    ];
+    return saveBlob(xlsxBlob([{ name: 'Summary', widths: [38, 10, 15, 15, 15, 15], rows: srows }, detailSheet('Permits', COLS_OV, rows)]), `Permits_${tag}_${stamp()}.xlsx`);
+  }
+  if (fmt === 'pdf') {
+    const sum = { heading: 'Summary by permit type', cols: [{ h: 'Permit type', w: 220 }, { h: 'Permits', w: 60, a: 'r' }, { h: 'Permit fees', w: 90, a: 'r' }, { h: 'Fees paid', w: 90, a: 'r' }, { h: 'Fees unpaid', w: 90, a: 'r' }, { h: 'CICT fees', w: 90, a: 'r' }],
+      rows: sumRows.map(r => [r.label, String(r.count), money(r.fees), money(r.paid), money(r.fees - r.paid), money(r.cict)]),
+      total: ['Total', String(sumRows.reduce((a, r) => a + r.count, 0)), money(sumC(sumRows, r => r.fees)), money(sumC(sumRows, r => r.paid)), money(sumC(sumRows, r => r.fees - r.paid)), money(sumC(sumRows, r => r.cict))] };
+    return saveBlob(pdfReport({ title: 'Permit Fee Summary', lines: [per, 'Fiscal year runs Oct 1 - Sep 30. Permits are counted by date submitted.'], blocks: [sum, pdfDetailBlock(COLS_OV, rows, 'Permit detail')] }), `Permits_${tag}_${stamp()}.pdf`);
+  }
+}
+function crBasis(cr) { return cr.paidOnly ? 'Paid permits only' : 'All submitted permits (paid and unpaid)'; }
+function crTitle(cr) { return cr.month === 'all' ? `${fyLabel(cr.fy)} (${fyRangeText(cr.fy)})` : `${monthLabel(cr.fy, +cr.month)} (${fyLabel(cr.fy)})`; }
+function exportCict(fmt) {
+  const cr = S.cr, d = cr.data; if (!d) return;
+  const title = crTitle(cr), rows = d.rows, tag = `${fyLabel(cr.fy)}${cr.month === 'all' ? '_AllMonths' : '_' + monthYear(cr.fy, +cr.month) + '-' + String(cr.month).padStart(2, '0')}${cr.paidOnly ? '_PaidOnly' : ''}`;
+  const file = `CICT_Report_${tag}`;
+  if (fmt === 'csv') return saveBlob(csvBlob(csvDetail(COLS_CICT, rows)), `${file}.csv`);
+  const bySrc = d.by_source;
+  const monthRows = d.by_month.map(m => { const [y, mm] = m.month.split('-').map(Number); return { label: `${MONTHS[mm - 1]} ${y}`, count: m.count, cict: m.cict }; });
+  if (fmt === 'xlsx') {
+    const r0 = 7, n = bySrc.length;
+    const srows = [
+      [{ v: 'City of Arab, Alabama - CICT Fee Report', s: 'title' }], [{ v: title, s: 'bold' }],
+      [{ v: `Counted by date submitted (${d.from} to ${d.to}). ${crBasis(cr)}. Generated ${longDate(stamp())}.`, s: 'note' }], [], [{ v: 'CICT fees by permit type', s: 'bold' }],
+      ['Permit type', 'Permits with CICT', 'CICT fees'].map(v => ({ v, s: 'header' })),
+      ...bySrc.map(s => [s.label, s.count, { v: s.cict, s: 'money' }]),
+      [{ v: 'Total CICT fees', s: 'bold' }, { v: sumC(bySrc, s => s.count), s: 'bold', f: `SUM(B${r0}:B${r0 + n - 1})` }, { v: sumC(bySrc, s => s.cict), s: 'moneyBold', f: `SUM(C${r0}:C${r0 + n - 1})` }],
+    ];
+    if (cr.month === 'all' && monthRows.length) {
+      const m0 = srows.length + 4;
+      srows.push([], [{ v: 'CICT fees by month', s: 'bold' }], ['Month', 'Permits with CICT', 'CICT fees'].map(v => ({ v, s: 'header' })),
+        ...monthRows.map(m => [m.label, m.count, { v: m.cict, s: 'money' }]),
+        [{ v: 'Total', s: 'bold' }, { v: sumC(monthRows, m => m.count), s: 'bold', f: `SUM(B${m0}:B${m0 + monthRows.length - 1})` }, { v: sumC(monthRows, m => m.cict), s: 'moneyBold', f: `SUM(C${m0}:C${m0 + monthRows.length - 1})` }]);
+    }
+    return saveBlob(xlsxBlob([{ name: 'Summary', widths: [40, 20, 16], rows: srows }, detailSheet('Detail', COLS_CICT, rows)]), `${file}.xlsx`);
+  }
+  if (fmt === 'pdf') {
+    const blocks = [{ heading: 'CICT fees by permit type', cols: [{ h: 'Permit type', w: 300 }, { h: 'Permits with CICT', w: 110, a: 'r' }, { h: 'CICT fees', w: 110, a: 'r' }], rows: bySrc.map(s => [s.label, String(s.count), money(s.cict)]), total: ['Total CICT fees', String(sumC(bySrc, s => s.count)), money(sumC(bySrc, s => s.cict))] }];
+    if (cr.month === 'all' && monthRows.length) blocks.push({ heading: 'CICT fees by month', cols: [{ h: 'Month', w: 300 }, { h: 'Permits with CICT', w: 110, a: 'r' }, { h: 'CICT fees', w: 110, a: 'r' }], rows: monthRows.map(m => [m.label, String(m.count), money(m.cict)]), total: ['Total', String(sumC(monthRows, m => m.count)), money(sumC(monthRows, m => m.cict))] });
+    blocks.push(pdfDetailBlock(COLS_CICT, rows, 'Permit detail'));
+    return saveBlob(pdfReport({ title: 'CICT Fee Report', lines: [title, `Counted by date submitted (${fmtDate(d.from)} to ${fmtDate(d.to)}). ${crBasis(cr)}.`], blocks }), `${file}.pdf`);
+  }
+}
+
+/* ====================================================================
+   API — real (Supabase RPC) or demo (in-memory sample data)
+   ==================================================================== */
+async function rpc(fn, args) {
+  const res = await fetch(`${CONFIG.SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    // Legacy anon keys are JWTs and also go in Authorization; new sb_publishable_ keys are not JWTs and go in apikey only.
+    headers: Object.assign({ 'Content-Type': 'application/json', apikey: CONFIG.SUPABASE_ANON_KEY }, CONFIG.SUPABASE_ANON_KEY.startsWith('eyJ') ? { Authorization: `Bearer ${CONFIG.SUPABASE_ANON_KEY}` } : {}),
+    body: JSON.stringify(args || {}),
+  });
+  const text = await res.text(); let body = null; try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  if (!res.ok) { const e = new Error((body && body.message) || 'Request failed'); e.unauthorized = /unauthorized/i.test(e.message); throw e; }
+  return body;
+}
+const tok = () => S.token;
+const realApi = {
+  search: f => rpc('pm_search_permit', { p_source: f.type, p_permit: f.no, p_date: f.date, p_name: f.name, p_address: f.addr }),
+  login: (u, p) => rpc('pm_staff_login', { p_username: u, p_password: p }),
+  logout: () => rpc('pm_staff_logout', { p_token: tok() }),
+  changePassword: (o, n) => rpc('pm_staff_change_password', { p_token: tok(), p_old: o, p_new: n }),
+  meta: () => rpc('pm_staff_meta', { p_token: tok() }),
+  summary: fy => rpc('pm_staff_summary', { p_token: tok(), p_fy: fy }),
+  permits: fy => rpc('pm_staff_permits', { p_token: tok(), p_fy: fy }),
+  cict: (fy, m, paid) => rpc('pm_staff_cict', { p_token: tok(), p_fy: fy, p_month: m, p_paid_only: !!paid }),
+  saveSource: (s, url, mapping) => rpc('pm_staff_save_source', { p_token: tok(), p_source: s, p_url: url, p_mapping: mapping }),
+  sync: s => rpc('pm_staff_sync', { p_token: tok(), p_source: s }),
+};
+const DEMO_ROWS = [];
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const toks = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+const tokMatch = (inp, stored) => { const i = toks(inp), s = toks(stored); return i.length > 0 && i.every(t => s.some(x => x === t || (t.length >= 3 && x.startsWith(t)) || (x.length >= 3 && t.startsWith(x)))); };
+const inFy = (r, fy) => fy == null || (r.submitted_on && fyOf(r.submitted_on) === fy);
+const demoApi = {
+  async search(f) {
+    await wait(250);
+    if (!f.type || String(f.no).trim().length < 3 || !f.date || String(f.name).trim().length < 2 || String(f.addr).trim().length < 4) return { ok: false, error: 'missing' };
+    const res = DEMO_ROWS.filter(r => r.source === f.type && String(r.permit_no).trim().toLowerCase() === String(f.no).trim().toLowerCase() && r.submitted_on === f.date && tokMatch(f.name, r.applicant) && tokMatch(f.addr, r.address))
+      .slice(0, 5).map(r => ({ ...r, has_inspections: true }));
+    return { ok: true, results: res };
+  },
+  async login(u, p) { await wait(200); return u.trim().toLowerCase() === 'admin' && p === 'demo1234' ? { ok: true, token: 'demo', username: 'admin' } : { ok: false, error: 'invalid' }; },
+  async logout() {}, async changePassword() { return { ok: false, error: 'Password changes are disabled in demo mode.' }; },
+  async meta() {
+    const yrs = [...new Set(DEMO_ROWS.map(r => fyOf(r.submitted_on)).filter(Boolean).concat([fyOf(todayISO())]))].sort((a, b) => b - a);
+    return { years: yrs, undated: 0, sources: SOURCES.map(s => ({ source: s.key, label: s.label, csv_url: '', mapping: {}, last_sync_at: null, last_sync_ok: null, last_sync_msg: 'Demo mode', last_sync_rows: DEMO_ROWS.filter(r => r.source === s.key).length, last_missing: [], has_inspections: true })) };
+  },
+  async summary(fy) {
+    await wait(120); const o = {};
+    SOURCES.forEach(s => { const rs = DEMO_ROWS.filter(r => r.source === s.key && inFy(r, fy)); o[s.key] = { label: s.label, count: rs.length, fees: sumC(rs, r => r.permit_fee), fees_paid: sumC(rs.filter(r => r.paid), r => r.permit_fee), cict: sumC(rs, r => r.cict_fee) }; });
+    return o;
+  },
+  async permits(fy) { await wait(120); return DEMO_ROWS.filter(r => inFy(r, fy)).sort((a, b) => String(b.submitted_on).localeCompare(String(a.submitted_on)) || String(a.permit_no).localeCompare(String(b.permit_no))); },
+  async cict(fy, m, paid) {
+    await wait(120);
+    let from, to;
+    if (m == null) { from = `${fy - 1}-10-01`; to = `${fy}-09-30`; }
+    else { const y = monthYear(fy, m), last = new Date(Date.UTC(y, m, 0)).getUTCDate(); from = `${y}-${String(m).padStart(2, '0')}-01`; to = `${y}-${String(m).padStart(2, '0')}-${last}`; }
+    const rows = DEMO_ROWS.filter(r => r.submitted_on >= from && r.submitted_on <= to && r.cict_fee > 0 && (!paid || r.paid)).sort((a, b) => a.submitted_on.localeCompare(b.submitted_on) || String(a.permit_no).localeCompare(String(b.permit_no)));
+    const bm = {}; rows.forEach(r => { const k = r.submitted_on.slice(0, 7); (bm[k] = bm[k] || { month: k, count: 0, cents: 0 }); bm[k].count++; bm[k].cents += cents(r.cict_fee); });
+    return { from, to, total: sumC(rows, r => r.cict_fee), paid_total: sumC(rows.filter(r => r.paid), r => r.cict_fee), count: rows.length,
+      by_source: SOURCES.map(s => { const rs = rows.filter(r => r.source === s.key); return { source: s.key, label: s.label, count: rs.length, cict: sumC(rs, r => r.cict_fee) }; }),
+      by_month: Object.values(bm).sort((a, b) => a.month.localeCompare(b.month)).map(x => ({ month: x.month, count: x.count, cict: x.cents / 100 })), rows };
+  },
+  async saveSource() { return { ok: false, error: 'Demo mode' }; }, async sync() { return {}; },
+};
+const api = DEMO ? demoApi : realApi;
+
+/* ====================================================================
+   STATE + VIEWS
+   ==================================================================== */
+const S = {
+  view: 'public', tab: 'overview', token: null, user: null, meta: null, busy: false,
+  pub: { form: { type: '', no: '', date: '', name: '', addr: '' }, results: null, error: '', invalid: [], loading: false },
+  login: { error: '', loading: false },
+  ov: { fy: null, summary: null, permits: null, filter: '', loading: false },
+  cc: { fy: null, month: 'all', data: null, loading: false },
+  cr: { fy: null, month: 'all', paidOnly: false, data: null, loading: false },
+  set: { busy: null },
+};
+
+const header = (title, right = '') => `<header class="top"><div class="titleblock"><div class="city">CITY OF ARAB, ALABAMA</div><h1>${title}</h1></div>${right}</header>`;
+const fyOptions = (sel, withAll) => (withAll ? `<option value="all"${sel === 'all' ? ' selected' : ''}>Overall (all years)</option>` : '')
+  + ((S.meta && S.meta.years) || []).map(y => `<option value="${y}"${String(sel) === String(y) ? ' selected' : ''}>${fyLabel(y)} (10/1/${String(y - 1).slice(2)} – 9/30/${String(y).slice(2)})</option>`).join('');
+const monthOptions = (fy, sel) => `<option value="all"${sel === 'all' ? ' selected' : ''}>All months</option>` + FY_MONTHS.map(m => `<option value="${m}"${String(sel) === String(m) ? ' selected' : ''}>${monthLabel(fy, m)}</option>`).join('');
+
+/* ---------- public ---------- */
+function trackerHTML(p) {
+  const n = p.inspections ? Object.keys(p.inspections).length : 0;
+  const steps = [{ t: 'Submitted', done: true, cap: 'Received ' + fmtDate(p.submitted_on) }];
+  if (p.has_inspections) steps.push({ t: 'Inspection', done: !!p.inspection_started, cap: p.inspection_started ? `${n} inspection${n === 1 ? '' : 's'} recorded` : 'Not started yet' });
+  steps.push({ t: 'Payment received', done: !!p.paid, cap: p.paid ? 'Payment received' : 'Not received yet' });
+  steps.push({ t: 'Complete & issued', done: !!p.complete, cap: p.complete ? 'Permit issued' : (p.coo_given ? 'Awaiting payment' : p.paid ? 'Awaiting Certificate of Occupancy' : 'Not issued yet') });
+  const cur = steps.findIndex(s => !s.done), pct = Math.round(steps.filter(s => s.done).length / steps.length * 100);
+  const outstanding = []; if (p.has_inspections && !p.inspection_started) outstanding.push('inspection'); if (!p.paid) outstanding.push('payment'); if (!p.coo_given) outstanding.push('Certificate of Occupancy');
+  return `<div class="pbar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div>
+    <ol class="steps" style="--n:${steps.length}">${steps.map((s, i) => `<li class="step${s.done ? ' done' : ''}${i === cur ? ' current' : ''}"><div class="dot">${s.done ? '✓' : i + 1}</div><div class="lbl">${s.t}</div><div class="cap">${esc(s.cap)}</div></li>`).join('')}</ol>
+    ${p.inspections && n ? `<div class="chips">${Object.keys(p.inspections).map(k => `<span class="chip">${esc(k)} ✓</span>`).join('')}</div>` : ''}
+    <div class="banner ${p.complete ? 'ok' : 'beta'}" style="margin:14px 0 0">${p.complete ? '<b>Complete</b> — this permit has been issued.' : '<b>In progress</b> — still outstanding: ' + esc(outstanding.join(', ') || 'final approval') + '.'}</div>`;
+}
+function publicView() {
+  const p = S.pub, f = p.form, bad = k => (p.invalid.includes(k) ? ' invalid' : '');
+  let results = '';
+  if (p.loading) results = '<div class="spinner"></div>';
+  else if (p.results && p.results.length) results = p.results.map(r => `<div class="card slip">
+      <div class="p-hd"><div><div class="p-no">${esc(r.permit_no)}</div></div><span class="pill type">${esc(r.label)}</span></div>
+      <p class="p-meta">${esc(r.address || '')}<br>Submitted ${esc(longDate(r.submitted_on))}</p>${trackerHTML(r)}</div>`).join('');
+  else if (p.results) results = `<div class="card"><div class="empty"><b>No matching permit found.</b><br>Please check that the permit type, permit number, and date submitted are exactly right, and that the name and address match your application. New applications can take up to an hour to appear.</div></div>`;
+  return `${header('Permit Status')}<main>
+    <p class="lede">Check the progress of a building, sub trade, or sign permit. To protect your privacy, please fill in every field below using the details from your application.</p>
+    ${DEMO ? `<div class="banner caution"><b>Demo mode</b> — sample data only. <button class="link" data-act="demo-fill" type="button">Fill in an example</button></div>` : ''}
+    <form class="card slip" id="searchForm" novalidate>
+      <div class="field"><label for="f_type">Permit type <span class="req">*</span></label>
+        <select id="f_type" data-form="type" class="${bad('type').trim()}" required><option value="">Select a permit type…</option>${SOURCES.map(s => `<option value="${s.key}"${f.type === s.key ? ' selected' : ''}>${s.label}</option>`).join('')}</select></div>
+      <div class="row2">
+        <div class="field"><label for="f_no">Permit # <span class="req">*</span></label><input id="f_no" data-form="no" class="${bad('no').trim()}" value="${esc(f.no)}" autocomplete="off" required></div>
+        <div class="field"><label for="f_date">Date submitted <span class="req">*</span></label><input id="f_date" type="date" data-form="date" class="${bad('date').trim()}" value="${esc(f.date)}" max="${todayISO()}" required></div>
+      </div>
+      <div class="field"><label for="f_name">Applicant name <span class="req">*</span></label><input id="f_name" data-form="name" class="${bad('name').trim()}" value="${esc(f.name)}" autocomplete="name" required></div>
+      <div class="field"><label for="f_addr">Property address <span class="req">*</span></label><input id="f_addr" data-form="addr" class="${bad('addr').trim()}" value="${esc(f.addr)}" autocomplete="street-address" required><div class="hint">The street number and street name is enough (for example “431 Oak”).</div></div>
+      ${p.error ? `<div class="banner warn" style="margin:0 0 14px">${esc(p.error)}</div>` : ''}
+      <button class="primary" type="submit"${p.loading ? ' disabled' : ''}>${p.loading ? 'Searching…' : 'Check status'}</button>
+    </form>
+    ${results}
+    <footer class="betafoot">Permit status is refreshed from the Building Department’s records about once an hour.<br><button class="link" data-act="goto-login" type="button">Administrator log in</button></footer></main>`;
+}
+
+/* ---------- admin login ---------- */
+function loginView() {
+  return `${header('Administrator Log In')}<main>
+    <button class="link" data-act="goto-public" type="button">← Back to permit lookup</button>
+    ${DEMO ? '<div class="banner caution" style="margin-top:10px"><b>Demo mode</b> — sign in with <b>admin</b> / <b>demo1234</b>.</div>' : ''}
+    <form class="card slip" id="loginForm" style="margin-top:10px">
+      <div class="field"><label for="l_u">Username</label><input id="l_u" autocomplete="username" required></div>
+      <div class="field"><label for="l_p">Password</label><input id="l_p" type="password" autocomplete="current-password" required></div>
+      ${S.login.error ? `<div class="banner warn" style="margin:0 0 14px">${esc(S.login.error)}</div>` : ''}
+      <button class="primary" type="submit"${S.login.loading ? ' disabled' : ''}>${S.login.loading ? 'Signing in…' : 'Sign in'}</button>
+    </form></main>`;
+}
+
+/* ---------- admin ---------- */
+function adminShell(inner) {
+  const tabs = [['overview', 'Overview'], ['cict', 'CICT Report'], ['settings', 'Sheets & Sync'], ['account', 'Account']];
+  return `${header('Permit Administration', `<div class="who">${esc(S.user || '')}<button class="btn small" data-act="logout" type="button">Log out</button></div>`)}
+    <nav class="tabs">${tabs.map(([k, l]) => `<button data-act="tab" data-tab="${k}" class="${S.tab === k ? 'active' : ''}" type="button">${l}</button>`).join('')}</nav>
+    <main>${inner}</main>`;
+}
+function exportBtns(act, enabled) {
+  return `<div class="btnrow">${[['xlsx', 'Excel'], ['pdf', 'PDF'], ['csv', 'CSV']].map(([f, l]) => `<button class="btn${f === 'xlsx' ? ' solid' : ''}" data-act="${act}" data-fmt="${f}" type="button"${enabled ? '' : ' disabled'}>⬇ ${l}</button>`).join('')}</div>`;
+}
+function permitTableHTML() {
+  const o = S.ov; if (!o.permits) return '<div class="spinner"></div>';
+  const q = o.filter.trim().toLowerCase();
+  const rows = q ? o.permits.filter(r => [r.permit_no, r.applicant, r.address, r.label].join(' ').toLowerCase().includes(q)) : o.permits;
+  if (!rows.length) return '<div class="empty">No permits match.</div>';
+  const shown = rows.slice(0, 100);
+  return `<div class="table-wrap"><table class="admin-table"><thead><tr><th>Permit #</th><th>Type</th><th>Submitted</th><th>Applicant</th><th>Address</th><th class="num">Permit fee</th><th class="num">CICT</th><th>Stage</th></tr></thead><tbody>
+    ${shown.map(r => `<tr><td>${esc(r.permit_no || '—')}</td><td>${esc(r.label)}</td><td>${fmtDate(r.submitted_on)}</td><td>${esc(r.applicant || '')}</td><td>${esc(r.address || '')}</td><td class="num">${money(r.permit_fee)}</td><td class="num">${money(r.cict_fee)}</td><td><span class="pill s-${stageOf(r)}">${stageLabel(r)}</span></td></tr>`).join('')}
+  </tbody></table></div><div class="hint" style="margin-top:8px">${rows.length > shown.length ? `Showing the first ${shown.length} of ${rows.length} permits — export to get the full list.` : `${rows.length} permit${rows.length === 1 ? '' : 's'}.`}</div>`;
+}
+function overviewView() {
+  const o = S.ov, sm = o.summary;
+  const stat = (i, s) => { const x = sm && sm[s.key]; return `<div class="stat ${['', 'b2', 'b3'][i]}"><div class="k">${s.key === 'sign' ? 'Sign permit fees' : 'Building permit fees — ' + (s.key === 'building' ? 'Contractor/Owner' : 'Sub Trade')}</div>
+    <div class="amt">${x ? money(x.fees) : '…'}</div><div class="sub">${x ? `${x.count} permit${x.count === 1 ? '' : 's'} · ${money(x.fees_paid)} paid · ${money(x.fees - x.fees_paid)} unpaid` : ''}</div></div>`; };
+  const c = S.cc, cd = c.data;
+  return `<div class="toolbar"><div class="field"><label for="ov_fy">Fiscal year</label><select id="ov_fy" data-bind="ov.fy">${fyOptions(o.fy, true)}</select></div>${exportBtns('ov-export', !!sm && !!o.permits)}</div>
+    ${S.meta && S.meta.undated ? `<div class="banner caution">${S.meta.undated} permit row${S.meta.undated === 1 ? ' has' : 's have'} no readable submission date. They count in “Overall” but not in any fiscal year.</div>` : ''}
+    <div class="stat-grid">${SOURCES.map((s, i) => stat(i, s)).join('')}</div>
+    <div class="card cict-card">
+      <div><div class="section-title">CICT fees — all permits</div><p class="section-sub">Building (both types) and sign permits combined, counted by date submitted.</p>
+        <div class="sel2"><div class="field"><label for="cc_fy">Fiscal year</label><select id="cc_fy" data-bind="cc.fy">${fyOptions(c.fy, false)}</select></div>
+        <div class="field"><label for="cc_m">Month</label><select id="cc_m" data-bind="cc.month">${monthOptions(c.fy, c.month)}</select></div></div></div>
+      <div class="center"><div class="k" style="font-size:12.5px;font-weight:600;color:var(--ink-soft)">${c.month === 'all' ? esc(fyLabel(c.fy)) : esc(monthLabel(c.fy, +c.month))}</div>
+        <div class="amt">${cd ? money(cd.total) : '…'}</div><div class="hint">${cd ? `${cd.count} permit${cd.count === 1 ? '' : 's'} with a CICT fee` : ''}</div>
+        <button class="link" data-act="open-cict" type="button">Open CICT report &amp; exports →</button></div>
+    </div>
+    <div class="card"><div class="toolbar" style="margin-bottom:0"><div><div class="section-title">Permits in this period</div><p class="section-sub" style="margin:0">${o.fy === 'all' ? 'All fiscal years' : esc(fyLabel(o.fy) + ' · ' + fyRangeText(o.fy))}</p></div>
+      <div class="field" style="min-width:240px"><label for="ov_q">Filter</label><input id="ov_q" data-bind="ov.filter" placeholder="Permit #, name, or address" value="${esc(o.filter)}"></div></div>
+      <div id="permitTable">${permitTableHTML()}</div></div>`;
+}
+function cictTabView() {
+  const c = S.cr, d = c.data;
+  let result;
+  if (c.loading || !d) result = '<div class="spinner"></div>';
+  else result = `<div class="center" style="padding:6px 0 14px"><div style="font-size:12.5px;font-weight:600;color:var(--ink-soft)">Total CICT fees — ${esc(crTitle(c))}</div><div class="amt" style="font-family:var(--serif);font-size:38px;font-weight:700;color:var(--primary)">${money(d.total)}</div>
+      <div class="hint">${d.count} permit${d.count === 1 ? '' : 's'} with a CICT fee · submitted ${fmtDate(d.from)} – ${fmtDate(d.to)} · ${esc(crBasis(c))}${c.paidOnly ? '' : ` · ${money(d.paid_total)} of this is on paid permits`}</div></div>
+    <div class="row2" style="gap:24px"><div><div class="section-title" style="font-size:14.5px">By permit type</div>${d.by_source.map(s => `<div class="kv"><span class="k">${esc(s.label)} <span class="hint">(${s.count})</span></span><span>${money(s.cict)}</span></div>`).join('')}<div class="kv total"><span>Total</span><span>${money(d.total)}</span></div></div>
+      <div>${c.month === 'all' ? `<div class="section-title" style="font-size:14.5px">By month</div>${d.by_month.length ? d.by_month.map(m => { const [y, mm] = m.month.split('-').map(Number); return `<div class="kv"><span class="k">${MONTHS[mm - 1]} ${y} <span class="hint">(${m.count})</span></span><span>${money(m.cict)}</span></div>`; }).join('') : '<div class="hint">No CICT fees in this year.</div>'}` : ''}</div></div>
+    <div class="table-wrap"><table class="admin-table"><thead><tr><th>Permit #</th><th>Type</th><th>Submitted</th><th>Applicant</th><th>Address</th><th class="num">Permit fee</th><th class="num">CICT fee</th><th>Paid</th></tr></thead><tbody>
+      ${d.rows.map(r => `<tr><td>${esc(r.permit_no || '—')}</td><td>${esc(r.label)}</td><td>${fmtDate(r.submitted_on)}</td><td>${esc(r.applicant || '')}</td><td>${esc(r.address || '')}</td><td class="num">${money(r.permit_fee)}</td><td class="num">${money(r.cict_fee)}</td><td>${r.paid ? 'Yes' : 'No'}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No permits with a CICT fee in this period.</td></tr>'}
+      ${d.rows.length ? `<tr class="tot"><td colspan="5">Total</td><td class="num">${money(sumC(d.rows, r => r.permit_fee))}</td><td class="num">${money(sumC(d.rows, r => r.cict_fee))}</td><td></td></tr>` : ''}</tbody></table></div>`;
+  return `<div class="card"><div class="section-title">CICT fee report</div><p class="section-sub">Choose the period, then export the results for the monthly report.</p>
+      <div class="row2" style="grid-template-columns:1fr 1fr 1fr">
+        <div class="field"><label for="cr_fy">Fiscal year</label><select id="cr_fy" data-bind="cr.fy">${fyOptions(c.fy, false)}</select></div>
+        <div class="field"><label for="cr_m">Month</label><select id="cr_m" data-bind="cr.month">${monthOptions(c.fy, c.month)}</select></div>
+        <div class="field"><label for="cr_p">Count</label><select id="cr_p" data-bind="cr.paidOnly"><option value="0"${c.paidOnly ? '' : ' selected'}>All submitted permits</option><option value="1"${c.paidOnly ? ' selected' : ''}>Paid permits only</option></select></div></div></div>
+    <div class="card export-card"><div class="toolbar" style="margin:0"><div><div class="section-title">Export CICT report</div><p class="section-sub" style="margin:0">Exports exactly what is selected above: <b>${esc(crTitle(c))}</b>.</p></div>${exportBtns('cict-export', !!d && !c.loading)}</div></div>
+    <div class="card">${result}</div>`;
+}
+function fmtWhen(iso) { if (!iso) return 'never'; return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }); }
+function settingsView() {
+  const m = S.meta; if (!m) return '<div class="spinner"></div>';
+  return `<div class="banner beta"><b>How syncing works:</b> the site reads each Google Sheet’s published CSV link automatically about once an hour, whether or not anyone is logged in. To get a link: in the sheet choose <i>File → Share → Publish to web</i>, pick the tab and <i>Comma-separated values (.csv)</i>, then paste the link below.</div>
+    <div class="toolbar"><div></div><button class="btn solid" data-act="sync-all" type="button"${S.set.busy ? ' disabled' : ''}>${S.set.busy === 'all' ? 'Syncing…' : '⟳ Sync all sheets now'}</button></div>
+    ${m.sources.map(s => `<div class="card slip"><div class="section-title">${esc(s.label)}</div>
+      <div class="field"><label for="url_${s.source}">Published CSV link</label><input id="url_${s.source}" data-src="${s.source}" value="${esc(s.csv_url)}" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?output=csv"></div>
+      <p class="section-sub" style="margin-bottom:8px">Last sync: ${esc(fmtWhen(s.last_sync_at))} — ${s.last_sync_ok === false ? `<span class="st-bad">failed: ${esc(s.last_sync_msg)}</span>` : s.last_sync_ok ? `<span class="st-ok">${esc(s.last_sync_msg)}</span>` : 'not synced yet'}</p>
+      ${s.last_missing && s.last_missing.length ? `<div class="banner caution">Columns not found in this sheet: <b>${esc(s.last_missing.join(', '))}</b>. Those fields will be blank. Check the column names in the sheet or edit the mapping below.</div>` : ''}
+      <div class="btnrow"><button class="btn" data-act="save-src" data-src="${s.source}" type="button">Save link</button><button class="btn solid" data-act="save-sync" data-src="${s.source}" type="button"${S.set.busy ? ' disabled' : ''}>${S.set.busy === s.source ? 'Syncing…' : 'Save & sync now'}</button></div>
+      <details><summary>Column mapping (advanced)</summary><p class="hint">Which sheet column headers feed each field. If a header appears more than once in the sheet, all copies are checked and the first filled-in one is used.</p><textarea id="map_${s.source}" spellcheck="false">${esc(JSON.stringify(s.mapping, null, 2))}</textarea></details></div>`).join('')}`;
+}
+function accountView() {
+  return `<form class="card slip" id="pwForm" style="max-width:460px"><div class="section-title">Change password</div><p class="section-sub">At least 10 characters.</p>
+    <div class="field"><label for="pw_o">Current password</label><input id="pw_o" type="password" autocomplete="current-password" required></div>
+    <div class="field"><label for="pw_n">New password</label><input id="pw_n" type="password" autocomplete="new-password" required minlength="10"></div>
+    <div class="field"><label for="pw_c">Confirm new password</label><input id="pw_c" type="password" autocomplete="new-password" required></div>
+    <button class="primary" type="submit">Update password</button></form>`;
+}
+function adminView() { return adminShell(S.tab === 'overview' ? overviewView() : S.tab === 'cict' ? cictTabView() : S.tab === 'settings' ? settingsView() : accountView()); }
+
+function render() {
+  $app.className = S.view === 'admin' ? 'wide' : '';
+  $app.innerHTML = S.view === 'public' ? publicView() : S.view === 'login' ? loginView() : adminView();
+}
+
+/* ---------- loaders ---------- */
+async function guard(fn) {
+  try { return await fn(); }
+  catch (e) { if (e.unauthorized) { await doLogout(true); toast('Your session expired. Please sign in again.', true); } else toast(e.message || 'Something went wrong.', true); return null; }
+}
+async function loadOverview() {
+  const o = S.ov; const fy = o.fy === 'all' ? null : +o.fy; o.summary = null; o.permits = null; render();
+  const [sm, pr] = await guard(() => Promise.all([api.summary(fy), api.permits(fy)])) || [null, null];
+  if (S.ov.fy !== o.fy) return; o.summary = sm; o.permits = pr || []; if (S.view === 'admin' && S.tab === 'overview') render();
+}
+async function loadCC() {
+  const c = S.cc; c.data = null; render();
+  const d = await guard(() => api.cict(+c.fy, c.month === 'all' ? null : +c.month, false)); c.data = d;
+  if (S.view === 'admin' && S.tab === 'overview') render();
+}
+async function loadCR() {
+  const c = S.cr; c.loading = true; c.data = null; render();
+  const d = await guard(() => api.cict(+c.fy, c.month === 'all' ? null : +c.month, c.paidOnly)); c.data = d; c.loading = false;
+  if (S.view === 'admin' && S.tab === 'cict') render();
+}
+async function loadMeta() { const m = await guard(() => api.meta()); if (m) { S.meta = m; render(); } return m; }
+async function enterAdmin() {
+  S.view = 'admin'; S.tab = 'overview';
+  const m = await guard(() => api.meta()); if (!m) return; S.meta = m;
+  const cur = fyOf(todayISO()), pd = defaultPeriod();
+  S.ov.fy = m.years.includes(cur) ? cur : m.years[0];
+  const fy = m.years.includes(pd.fy) ? pd.fy : m.years[0];
+  S.cc.fy = fy; S.cc.month = fy === pd.fy ? pd.month : 'all'; S.cr.fy = S.cc.fy; S.cr.month = S.cc.month;
+  render(); loadOverview(); loadCC();
+}
+async function doLogout(silent) {
+  if (!silent) { try { await api.logout(); } catch (e) { /* ignore */ } }
+  S.token = null; S.user = null; S.meta = null; S.view = 'public'; try { sessionStorage.removeItem('pm_token'); sessionStorage.removeItem('pm_user'); } catch (e) { /* ignore */ }
+  history.replaceState(null, '', location.pathname + location.search); render();
+}
+
+/* ---------- events ---------- */
+const setPath = (path, val) => { const [a, b] = path.split('.'); S[a][b] = val; };
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset.form) { S.pub.form[t.dataset.form] = t.value; if (S.pub.invalid.includes(t.dataset.form)) { S.pub.invalid = S.pub.invalid.filter(k => k !== t.dataset.form); t.classList.remove('invalid'); } }
+  if (t.dataset.bind === 'ov.filter') { S.ov.filter = t.value; document.getElementById('permitTable').innerHTML = permitTableHTML(); }
+});
+document.addEventListener('change', e => {
+  const t = e.target, b = t.dataset.bind; if (!b) return;
+  if (b === 'ov.fy') { S.ov.fy = t.value === 'all' ? 'all' : +t.value; loadOverview(); }
+  else if (b === 'cc.fy') { S.cc.fy = +t.value; S.cc.month = 'all'; loadCC(); }
+  else if (b === 'cc.month') { S.cc.month = t.value; loadCC(); }
+  else if (b === 'cr.fy') { S.cr.fy = +t.value; S.cr.month = 'all'; loadCR(); }
+  else if (b === 'cr.month') { S.cr.month = t.value; loadCR(); }
+  else if (b === 'cr.paidOnly') { S.cr.paidOnly = t.value === '1'; loadCR(); }
+});
+document.addEventListener('submit', async e => {
+  e.preventDefault(); const id = e.target.id;
+  if (id === 'searchForm') {
+    const f = S.pub.form, bad = [];
+    if (!f.type) bad.push('type'); if (f.no.trim().length < 3) bad.push('no'); if (!f.date) bad.push('date'); if (f.name.trim().length < 2) bad.push('name'); if (f.addr.trim().length < 4) bad.push('addr');
+    S.pub.invalid = bad; S.pub.results = null;
+    if (bad.length) { S.pub.error = 'Please fill in every field — all of them are required to look up a permit.'; return render(); }
+    S.pub.error = ''; S.pub.loading = true; render();
+    try {
+      const r = await api.search({ type: f.type, no: f.no.trim(), date: f.date, name: f.name.trim(), addr: f.addr.trim() });
+      S.pub.results = r && r.ok ? r.results : []; if (r && !r.ok) S.pub.error = 'Please fill in every field — all of them are required to look up a permit.';
+    } catch (err) { S.pub.error = 'We could not reach the permit records right now. Please try again in a few minutes.'; }
+    S.pub.loading = false; render();
+  } else if (id === 'loginForm') {
+    const u = document.getElementById('l_u').value, p = document.getElementById('l_p').value;
+    S.login.loading = true; S.login.error = ''; render();
+    try {
+      const r = await api.login(u, p);
+      if (r && r.ok) { S.token = r.token; S.user = r.username; try { sessionStorage.setItem('pm_token', r.token); sessionStorage.setItem('pm_user', r.username); } catch (x) { /* ignore */ } S.login.loading = false; return enterAdmin(); }
+      S.login.error = r && r.error === 'locked' ? 'Too many failed attempts. Please wait 15 minutes and try again.' : 'Incorrect username or password.';
+    } catch (err) { S.login.error = 'Could not reach the server. Please try again.'; }
+    S.login.loading = false; render();
+  } else if (id === 'pwForm') {
+    const o = document.getElementById('pw_o').value, n = document.getElementById('pw_n').value, c = document.getElementById('pw_c').value;
+    if (n !== c) return toast('The new passwords do not match.', true);
+    const r = await guard(() => api.changePassword(o, n)); if (!r) return;
+    if (r.ok) { toast('Password updated.'); e.target.reset(); } else toast(r.error || 'Could not update password.', true);
+  }
+});
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-act]'); if (!el) return; const act = el.dataset.act;
+  if (act === 'goto-login') { S.view = 'login'; history.replaceState(null, '', '#admin'); render(); }
+  else if (act === 'goto-public') { S.view = 'public'; history.replaceState(null, '', location.pathname + location.search); render(); }
+  else if (act === 'demo-fill') { S.pub.form = { type: 'building', no: 'B-25-001', date: '2025-09-30', name: "O'Neil Builders", addr: '431 oak' }; S.pub.invalid = []; S.pub.error = ''; render(); }
+  else if (act === 'logout') doLogout();
+  else if (act === 'tab') { S.tab = el.dataset.tab; render(); if (S.tab === 'cict') { if (!S.cr.data && !S.cr.loading) loadCR(); } else if (S.tab === 'settings') loadMeta(); else if (S.tab === 'overview') { loadOverview(); loadCC(); } }
+  else if (act === 'open-cict') { S.cr.fy = S.cc.fy; S.cr.month = S.cc.month; S.tab = 'cict'; loadCR(); }
+  else if (act === 'ov-export') exportOverview(el.dataset.fmt);
+  else if (act === 'cict-export') exportCict(el.dataset.fmt);
+  else if (act === 'save-src' || act === 'save-sync') {
+    const src = el.dataset.src; let mapping = null;
+    try { mapping = JSON.parse(document.getElementById('map_' + src).value); } catch (x) { return toast('The column mapping is not valid JSON.', true); }
+    const r = await guard(() => api.saveSource(src, document.getElementById('url_' + src).value, mapping)); if (!r) return;
+    if (!r.ok) return toast(r.error || 'Could not save.', true);
+    if (act === 'save-src') { toast('Saved.'); return loadMeta(); }
+    S.set.busy = src; render(); const res = await guard(() => api.sync(src)); S.set.busy = null;
+    const one = res && res[src]; toast(one ? (one.ok ? `Synced ${one.rows} rows.` : 'Sync failed: ' + one.error) : 'Nothing to sync — paste a link first.', !(one && one.ok)); await loadMeta();
+  } else if (act === 'sync-all') {
+    S.set.busy = 'all'; render(); const res = await guard(() => api.sync(null)); S.set.busy = null;
+    const list = res ? Object.entries(res) : []; const bad = list.filter(([, v]) => !v.ok);
+    toast(!list.length ? 'No sheet links saved yet.' : bad.length ? `${bad.length} sheet(s) failed — see details below.` : 'All sheets synced.', !list.length || !!bad.length); await loadMeta();
+  }
+});
+
+/* ---------- init ---------- */
+(async function init() {
+  render();
+  let t = null, u = null; try { t = sessionStorage.getItem('pm_token'); u = sessionStorage.getItem('pm_user'); } catch (e) { /* ignore */ }
+  if (t) { S.token = t; S.user = u; await enterAdmin(); if (!S.token) render(); }
+  else if (location.hash === '#admin') { S.view = 'login'; render(); }
+})();
+</script>
+</body>
+</html>
