@@ -548,12 +548,14 @@ begin
       'label', s.label,
       'count', count(p.id),
       'fees', coalesce(sum(p.permit_fee), 0),
-      'fees_paid', coalesce(sum(p.permit_fee) filter (where p.paid), 0),
+      'fees_paid', coalesce(sum(p.permit_fee) filter (where p.paid or o.okey is not null), 0),
+      'fees_paid_override', coalesce(sum(p.permit_fee) filter (where not p.paid and o.okey is not null), 0),
       'cict', coalesce(sum(p.cict_fee), 0)
     ) as obj
     from pm_sources s
     left join pm_permits p on p.source = s.source
          and (p_fy is null or p.submitted_on between d1 and d2)
+    left join pm_overrides o on o.source = p.source and o.okey = pm_okey(p.permit_no, p.submitted_on)
     group by s.source
   ) t;
   return out;
@@ -570,8 +572,9 @@ begin
     select jsonb_agg(jsonb_build_object(
       'source', p.source, 'label', s.label, 'permit_no', p.permit_no, 'submitted_on', p.submitted_on,
       'applicant', p.applicant, 'address', p.address,
-      'permit_fee', p.permit_fee, 'cict_fee', p.cict_fee, 'paid', p.paid, 'payment_type', p.payment_type,
-      'inspection_started', p.inspection_started, 'coo_given', p.coo_given, 'complete', p.complete,
+      'permit_fee', p.permit_fee, 'cict_fee', p.cict_fee, 'paid', (p.paid or o.okey is not null), 'real_paid', p.paid, 'payment_type', p.payment_type,
+      'inspection_started', (p.inspection_started or o.okey is not null), 'coo_given', (p.coo_given or o.okey is not null),
+      'complete', (p.complete or o.okey is not null), 'real_complete', p.complete,
       'overridden', (o.okey is not null), 'override_reason', o.reason, 'override_by', o.set_by, 'override_at', o.set_at
     ) order by p.submitted_on desc nulls last, p.permit_no)
     from pm_permits p join pm_sources s on s.source = p.source
@@ -595,14 +598,19 @@ begin
   end if;
 
   with f as (
-    select p.*, s.label from pm_permits p join pm_sources s on s.source = p.source
+    select p.id, p.source, p.permit_no, p.submitted_on, p.applicant, p.address, p.permit_fee, p.cict_fee,
+           (p.paid or o.okey is not null) as paid, (not p.paid and o.okey is not null) as by_override, s.label
+    from pm_permits p join pm_sources s on s.source = p.source
+    left join pm_overrides o on o.source = p.source and o.okey = pm_okey(p.permit_no, p.submitted_on)
     where p.submitted_on between d1 and d2 and p.cict_fee > 0
-      and (not coalesce(p_paid_only, false) or p.paid)
+      and (not coalesce(p_paid_only, false) or p.paid or o.okey is not null)
   )
   select jsonb_build_object(
     'from', d1, 'to', d2,
     'total', coalesce((select sum(cict_fee) from f), 0),
     'paid_total', coalesce((select sum(cict_fee) from f where paid), 0),
+    'override_total', coalesce((select sum(cict_fee) from f where by_override), 0),
+    'override_count', (select count(*) from f where by_override),
     'count', (select count(*) from f),
     'by_source', coalesce((select jsonb_agg(jsonb_build_object('source', s.source, 'label', s.label,
         'count', coalesce(x.c, 0), 'cict', coalesce(x.t, 0)) order by case s.source when 'building' then 1 when 'subtrade' then 2 else 3 end)
@@ -611,7 +619,7 @@ begin
         from (select to_char(submitted_on, 'YYYY-MM') ym, count(*) c, sum(cict_fee) t from f group by 1) q), '[]'::jsonb),
     'rows', case when detail then coalesce((select jsonb_agg(jsonb_build_object('source', source, 'label', label, 'permit_no', permit_no,
         'submitted_on', submitted_on, 'applicant', applicant, 'address', address, 'permit_fee', permit_fee,
-        'cict_fee', cict_fee, 'paid', paid) order by submitted_on, permit_no) from f), '[]'::jsonb) else '[]'::jsonb end
+        'cict_fee', cict_fee, 'paid', paid, 'by_override', by_override) order by submitted_on, permit_no) from f), '[]'::jsonb) else '[]'::jsonb end
   ) into out;
   return out;
 end $$;
