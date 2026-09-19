@@ -14,7 +14,7 @@ Public permit status lookup, plus a staff dashboard for fee totals and the month
 3. In `index.html`, fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY` near the top of the script. While they are blank the site runs in demo mode with sample data (login `admin` / `demo1234`).
 4. Turn on GitHub Pages (Settings → Pages → Deploy from branch → `main` / root).
 5. Log in at `…/#admin`, open **Sheets & Sync**, paste the published CSV link for each Google Sheet, and choose **Save & sync now**. After that the data refreshes every hour on its own.
-6. Open the **Users** tab to add people and choose their access level.
+6. Open the **Users** tab to add people, choose their access level, and (as an administrator) customize what Staff and Viewer can do under **Role permissions**.
 
 **Overriding a permit's status**
 
@@ -32,11 +32,15 @@ A "Beta" label shows at the top of both sides of the site.
 
 **Access levels**
 
-- Administrator — everything, plus adding and managing users and changing the Google Sheet links.
-- Staff — dashboard, permit list with names and addresses, permit PDFs, CICT report, and Excel/PDF/CSV exports.
-- Viewer — dashboard and CICT totals only. No names, addresses or exports.
+- Administrator — everything, plus adding and managing users, changing the Google Sheet links, and editing what Staff and Viewer can do (see **Role permissions** below).
+- Staff — dashboard, permit list with names and addresses, permit PDFs, CICT report, and Excel/PDF/CSV exports, by default.
+- Viewer — dashboard and CICT totals only by default. No names, addresses or exports.
 
-Levels are enforced in the database, not just hidden on the page. Deactivating a user signs them out immediately. Administrators cannot lower, deactivate or delete their own login, so at least one administrator always remains.
+Levels are enforced in the database, not just hidden on the page. Deactivating a user signs them out immediately. Administrators cannot lower, deactivate or delete their own login, so at least one administrator always remains. An administrator's own account can only be edited, password-reset or deleted by another administrator — granting Staff or Viewer full access to the Users tab never lets them touch an administrator account or promote anyone to Administrator.
+
+**Role permissions**
+
+An administrator can open the **Users** tab and scroll to **Role permissions** to change exactly what Staff and Viewer can see and do — this replaces the fixed descriptions above with whatever an administrator sets. For each role, choose a level for each tab (No access / View / Edit — Overview and CICT Report only go up to View) and toggle the individual actions: seeing applicant names & addresses, exporting files, downloading permit PDFs, and marking permits complete (override). Turning on permit PDFs or override automatically turns on names & addresses too, since both need the permit list. **Reset to defaults** clears any customization for that role and goes back to the descriptions above. Administrators always have full access and cannot be restricted here. Every change is logged with who made it and when.
 
 **How stages are decided**
 
