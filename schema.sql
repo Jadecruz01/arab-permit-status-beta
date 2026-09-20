@@ -16,6 +16,15 @@ create extension if not exists pg_cron;
 -- ---------------------------------------------------------------------
 -- Tables
 -- ---------------------------------------------------------------------
+create table if not exists pm_settings (
+  id boolean primary key default true check (id),
+  banner_enabled boolean not null default false,
+  banner_text text,
+  updated_by text,
+  updated_at timestamptz
+);
+insert into pm_settings (id) values (true) on conflict (id) do nothing;
+
 create table if not exists pm_sources (
   source          text primary key check (source in ('building','subtrade','sign')),
   label           text not null,
@@ -125,6 +134,7 @@ create table if not exists pm_role_perm_log (     -- who changed which role's pe
 
 -- Lock every table: no direct access for the public key. All access goes
 -- through the SECURITY DEFINER functions below.
+alter table pm_settings       enable row level security;
 alter table pm_sources        enable row level security;
 alter table pm_permits        enable row level security;
 alter table pm_staff_users    enable row level security;
@@ -135,7 +145,7 @@ alter table pm_override_log   enable row level security;
 alter table pm_role_perms     enable row level security;
 alter table pm_role_perm_log  enable row level security;
 revoke all on pm_sources, pm_permits, pm_staff_users, pm_staff_sessions, pm_login_attempts from anon, authenticated;
-revoke all on pm_overrides, pm_override_log, pm_role_perms, pm_role_perm_log from anon, authenticated;
+revoke all on pm_overrides, pm_override_log, pm_role_perms, pm_role_perm_log, pm_settings from anon, authenticated;
 revoke all on sequence pm_permits_id_seq, pm_login_attempts_id_seq, pm_override_log_id_seq, pm_role_perm_log_id_seq from anon, authenticated;
 
 -- ---------------------------------------------------------------------
@@ -609,7 +619,7 @@ begin
   into srcs from pm_sources;
   select count(*) into undated from pm_permits where submitted_on is null;
   return jsonb_build_object('years', to_jsonb(yrs), 'sources', srcs, 'undated', undated,
-                            'role', me.role, 'username', me.username, 'full_name', me.full_name, 'perms', pr);
+                            'role', me.role, 'username', me.username, 'full_name', me.full_name, 'perms', pr, 'banner', (select jsonb_build_object('enabled', banner_enabled, 'text', banner_text) from pm_settings limit 1));
 end $$;
 
 -- Dashboard totals (p_fy null = overall)
@@ -740,6 +750,33 @@ begin
    where source = p_source;
   if not found then return jsonb_build_object('ok', false, 'error', 'unknown source'); end if;
   return jsonb_build_object('ok', true);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Public site banner (admin-controlled, on/off with custom text)
+-- ---------------------------------------------------------------------
+create or replace function pm_public_banner() returns jsonb
+language sql stable security definer set search_path = public, extensions as $$
+  select case when coalesce(banner_enabled, false) and nullif(btrim(coalesce(banner_text, '')), '') is not null
+              then jsonb_build_object('enabled', true, 'text', banner_text)
+              else jsonb_build_object('enabled', false) end
+  from pm_settings limit 1;
+$$;
+
+create or replace function pm_staff_banner_get(p_token uuid) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform pm_need(p_token, 'settings', 'view');
+  return coalesce((select jsonb_build_object('enabled', banner_enabled, 'text', banner_text, 'updated_by', updated_by, 'updated_at', updated_at) from pm_settings limit 1), jsonb_build_object('enabled', false, 'text', null));
+end $$;
+
+create or replace function pm_staff_banner_set(p_token uuid, p_enabled boolean, p_text text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare uname text; me uuid := pm_need(p_token, 'settings', 'edit'); t text := left(nullif(btrim(coalesce(p_text,'')), ''), 500);
+begin
+  select username into uname from pm_staff_users where id = me;
+  update pm_settings set banner_enabled = coalesce(p_enabled, false), banner_text = t, updated_by = uname, updated_at = now();
+  return jsonb_build_object('ok', true, 'enabled', coalesce(p_enabled, false), 'text', t);
 end $$;
 
 -- Sync now (p_source null = all three). Large sheets are better left to the hourly job if this times out.
@@ -942,7 +979,8 @@ grant execute on function
   pm_staff_users_list(uuid), pm_staff_user_add(uuid, text, text, text, text), pm_staff_user_update(uuid, uuid, text, text, boolean),
   pm_staff_user_reset_password(uuid, uuid, text), pm_staff_user_delete(uuid, uuid),
   pm_staff_override(uuid, jsonb, text, text, text), pm_staff_permit_detail(uuid, jsonb),
-  pm_staff_role_perms_get(uuid), pm_staff_role_perms_set(uuid, text, jsonb)
+  pm_staff_role_perms_get(uuid), pm_staff_role_perms_set(uuid, text, jsonb),
+  pm_public_banner(), pm_staff_banner_get(uuid), pm_staff_banner_set(uuid, boolean, text)
 to anon, authenticated;
 
 -- ---------------------------------------------------------------------
