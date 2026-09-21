@@ -86,6 +86,8 @@
 
   main { padding: 18px 16px 0; }
   .lede { color: var(--ink-soft); font-size: 14.5px; line-height: 1.5; margin: 4px 0 18px; }
+  .apply-cta { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 9px; padding: 12px 14px; margin-bottom: 16px; font-size: 13.5px; color: var(--ink-soft); line-height: 1.4; }
+  .apply-cta .btn-apply { flex-shrink: 0; padding: 9px 16px; border-radius: 9px; background: var(--primary); color: #FBF9F4; font-family: var(--sans); font-size: 13.5px; font-weight: 600; text-decoration: none; white-space: nowrap; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; position: relative; }
   .card.slip { border-left: 4px solid var(--accent); }
   .field { margin-bottom: 14px; }
@@ -926,6 +928,7 @@ function publicView() {
   return `${header('Permit Status')}<main>
     ${pubBanner && pubBanner.enabled && pubBanner.text ? `<div class="banner warn">${esc(pubBanner.text)}</div>` : ''}
     <p class="lede">Check the progress of a building, sub trade, or sign permit. To protect your privacy, please fill in every field below using the details from your application.</p>
+    <div class="apply-cta">Don't have a permit on file yet? You'll need to submit an application before it appears here.<a class="btn-apply" href="https://www.jotform.com/app/261578162936164/page/18" target="_blank" rel="noopener">Apply for a permit</a></div>
     ${DEMO ? `<div class="banner caution"><b>Demo mode</b> — sample data only. <button class="link" data-act="demo-fill" type="button">Fill in an example</button></div>` : ''}
     <form class="card slip" id="searchForm" novalidate>
       <div class="field"><label for="f_type">Permit type <span class="req">*</span></label>
@@ -937,7 +940,7 @@ function publicView() {
       <button class="primary" type="submit"${p.loading ? ' disabled' : ''}>${p.loading ? 'Searching…' : 'Check status'}</button>
     </form>
     ${results}
-    <footer class="betafoot">This site is in beta, so it is still being tested and improved. Permit status is refreshed from the Building Department’s records about once an hour.<br><button class="link" data-act="rel-open" type="button">What's new</button> &middot; <button class="link" data-act="goto-login" type="button">Administrator log in</button></footer></main>${footerHtml()}`;
+    <footer class="betafoot">This system syncs with the Building Department’s records about once an hour. If a result isn't found, double-check your permit details or try again in about an hour.<br><button class="link" data-act="rel-open" type="button">What's new</button> &middot; <button class="link" data-act="goto-login" type="button">Administrator log in</button></footer></main>${footerHtml()}`;
 }
 
 /* ---------- admin login ---------- */
